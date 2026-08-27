@@ -14,24 +14,20 @@ obj/
 *.su
 *.lst
 
-CentralComputer/build/
-CentralComputer/bin/
-GroundStation/build/
-GroundStation/bin/
-
 # ============ LNC / STM32CubeIDE ============
+# Build output and local IDE preferences only.
 LNC/Debug/
 LNC/Release/
 LNC/.settings/
 
 # Keep these — do NOT ignore:
-#   LNC/.project    .cproject    .mxproject    *.ioc
-# Without them nobody can open or regenerate the firmware project.
-# The .ioc holds your pin and clock config. Losing it means redoing
+#   LNC/.project  .cproject  .mxproject  *.ioc  Core/  Drivers/
+# Without them nobody can open or build the firmware from a clone.
+# The .ioc holds the pin and clock config. Losing it means redoing
 # the whole CubeMX setup by hand.
 
 # ============ Runtime output ============
-# Your own program writes these. They are data, not source.
+# Files your own programs write at run time. Data, not source.
 logs/
 data/
 *.log
@@ -52,8 +48,11 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
-# ============ Misc ============
-core
+# ============ Debug / coverage artifacts ============
+# Core dumps are named core.<pid>. The bare word "core" is NOT safe here:
+# this repo lives on an NTFS drive, so Git matches case-insensitively and
+# "core" would swallow LNC/Core/ and everything inside it.
+core.[0-9]*
 vgcore.*
 *.gcda
 *.gcno
