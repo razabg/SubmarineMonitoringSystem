@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.ioc   text eol=lf
+*.ld    text eol=lf
+*.s     text eol=lf
+
+*.bin   binary
+*.elf   binary
+*.hex   binary
+*.pdf   binary
+*.png   binary
+*.jpg   binary
