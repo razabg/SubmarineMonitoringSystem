@@ -1,0 +1,59 @@
+# ============ Build output ============
+# Anything a compiler produces. Never commit it.
+build/
+bin/
+obj/
+*.o
+*.d
+*.a
+*.so
+*.elf
+*.bin
+*.hex
+*.map
+*.su
+*.lst
+
+CentralComputer/build/
+CentralComputer/bin/
+GroundStation/build/
+GroundStation/bin/
+
+# ============ LNC / STM32CubeIDE ============
+LNC/Debug/
+LNC/Release/
+LNC/.settings/
+
+# Keep these — do NOT ignore:
+#   LNC/.project    .cproject    .mxproject    *.ioc
+# Without them nobody can open or regenerate the firmware project.
+# The .ioc holds your pin and clock config. Losing it means redoing
+# the whole CubeMX setup by hand.
+
+# ============ Runtime output ============
+# Your own program writes these. They are data, not source.
+logs/
+data/
+*.log
+events.txt
+*.db
+
+# ============ Editors / IDEs ============
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+compile_commands.json
+.cache/
+
+# ============ Windows / macOS junk ============
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ============ Misc ============
+core
+vgcore.*
+*.gcda
+*.gcno
