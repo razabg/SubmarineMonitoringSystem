@@ -1,16 +1,16 @@
-CC      ?= gcc
-CFLAGS  ?= -std=gnu11 -Wall -Wextra -Wpedantic -O2 -g
+CXX      ?= g++
+CXXFLAGS ?= -std=c++17 -Wall -Wextra -Wpedantic -O2 -g
 
-BIN     = sermon
-OBJ     = serial.o sermon.o
+BIN      = sermon
+OBJ      = serial.o sermon.o
 
 all: $(BIN)
 
 $(BIN): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJ)
 
-%.o: %.c serial.h
-	$(CC) $(CFLAGS) -c $< -o $@
+%.o: %.cpp serial.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(BIN) $(OBJ)
