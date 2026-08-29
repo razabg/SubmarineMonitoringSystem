@@ -8,7 +8,7 @@
  * This is why tlv.c has no strings in it at all.
  */
 
-#include "TlvNames.h"
+#include "tlv_names.h"
 
 const char *tlv_tag_name(uint8_t tag)
 {

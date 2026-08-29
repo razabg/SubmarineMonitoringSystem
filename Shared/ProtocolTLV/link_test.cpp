@@ -1,20 +1,17 @@
 /*
- * cpp_link_check.cpp
+ * link_test.cpp
  *
- * The Central Computer and the Ground Station are C++. This file
- * proves that the C header includes cleanly from C++ and that the
- * linker finds the symbols, i.e. that the extern "C" guard works.
- *
- * If someone later drops a C++ keyword or a C99-only construct into
- * tlv.h, this file stops compiling and the build fails.
+ * Proves tlv.h includes cleanly into C++ and that the extern "C"
+ * guard lets the linker find plain-C symbols from a C++ program.
+ * The Central Computer and Ground Station are both C++, so this
+ * is what their build actually does.
  */
 
 #include <cstdio>
 #include <vector>
-#include <cstring>
 
-#include "Tlv.h"
-#include "TlvNames.h"
+#include "tlv.h"
+#include "tlv_names.h"
 
 namespace
 {
@@ -40,9 +37,9 @@ int main()
         return 1;
     }
 
-    tlv_rx_t rx;
-    tlv_rx_init(&rx);
-    tlv_rx_feed(&rx, frame, n, on_frame, nullptr);
+    tlv_receiver_t rx;
+    tlv_receiver_init(&rx);
+    tlv_receiver_feed(&rx, frame, n, on_frame, nullptr);
 
     if (g_seen_tags.size() != 1 || g_seen_tags[0] != TLV_TAG_ACK)
     {

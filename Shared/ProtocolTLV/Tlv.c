@@ -3,7 +3,7 @@
  * See tlv.h for the frame layout and the design notes.
  */
 
-#include "Tlv.h"
+#include "tlv.h"
 
 /* ===============================================================
  * CRC-16/CCITT-FALSE
@@ -91,6 +91,11 @@ tlv_status_t tlv_encode(uint8_t        tag,
 
 /* ===============================================================
  * Decode a whole frame sitting in memory
+ *
+ * Needs the complete frame already in `in`. Right for a transport
+ * where a whole block arrives at once (a file, a TCP message) and
+ * for tests. Not for UART: read() hands back arbitrary chunks, so
+ * use the streaming parser (tlv_rx_feed_byte) there instead.
  * =============================================================== */
 
 tlv_status_t tlv_decode(const uint8_t *in,
@@ -167,106 +172,106 @@ enum {
     ST_CRC_LO
 };
 
-void tlv_rx_init(tlv_rx_t *rx)
+void tlv_receiver_init(tlv_receiver_t *recv) //state machine struct
 {
-    if (rx == NULL) {
+    if (recv == NULL) {
         return;
     }
-    rx->state         = ST_SOF0;
-    rx->tag           = 0u;
-    rx->len           = 0u;
-    rx->idx           = 0u;
-    rx->crc_calc      = 0xFFFFu;
-    rx->crc_rx        = 0u;
-    rx->frames_ok     = 0u;
-    rx->crc_errors    = 0u;
-    rx->bytes_dropped = 0u;
+    recv->state         = ST_SOF0;
+    recv->tag           = 0u;
+    recv->len           = 0u;
+    recv->idx           = 0u;
+    recv->crc_calc      = 0xFFFFu;
+    recv->crc_rx        = 0u;
+    recv->frames_ok     = 0u;
+    recv->crc_errors    = 0u;
+    recv->bytes_dropped = 0u;
 }
 
-tlv_status_t tlv_rx_feed_byte(tlv_rx_t *rx, uint8_t byte, tlv_frame_t *out)
+tlv_status_t tlv_receiver_feed_byte(tlv_receiver_t *recv, uint8_t byte, tlv_frame_t *out)
 {
-    if (rx == NULL || out == NULL) {
+    if (recv == NULL || out == NULL) {
         return TLV_ERR_NULL;
     }
 
-    switch (rx->state) {
+    switch (recv->state) {
 
     case ST_SOF0:
         if (byte == (uint8_t)TLV_SOF0) {
-            rx->state = ST_SOF1;
+            recv->state = ST_SOF1;
         } else {
             /* Junk between frames, or the tail of a frame we gave
              * up on. Count it and keep hunting for the sync pair. */
-            rx->bytes_dropped++;
+            recv->bytes_dropped++;
         }
         break;
 
     case ST_SOF1:
         if (byte == (uint8_t)TLV_SOF1) {
-            rx->crc_calc = 0xFFFFu;
-            rx->state    = ST_TAG;
+            recv->crc_calc = 0xFFFFu;
+            recv->state    = ST_TAG;
         } else if (byte == (uint8_t)TLV_SOF0) {
             /* A5 A5 5A is a valid start. Stay here rather than
              * going back to ST_SOF0, or we would miss it. */
-            rx->bytes_dropped++;
+            recv->bytes_dropped++;
         } else {
-            rx->bytes_dropped += 2u;   /* the A5 and this byte */
-            rx->state = ST_SOF0;
+            recv->bytes_dropped += 2u;   /* the A5 and this byte */
+            recv->state = ST_SOF0;
         }
         break;
 
     case ST_TAG:
-        rx->tag      = byte;
-        rx->crc_calc = tlv_crc16_update(rx->crc_calc, byte);
-        rx->state    = ST_LEN;
+        recv->tag      = byte;
+        recv->crc_calc = tlv_crc16_update(recv->crc_calc, byte);
+        recv->state    = ST_LEN;
         break;
 
     case ST_LEN:
-        rx->len      = byte;
-        rx->idx      = 0u;
-        rx->crc_calc = tlv_crc16_update(rx->crc_calc, byte);
-        rx->state    = (byte == 0u) ? (uint8_t)ST_CRC_HI : (uint8_t)ST_VALUE;
+        recv->len      = byte;
+        recv->idx      = 0u;
+        recv->crc_calc = tlv_crc16_update(recv->crc_calc, byte);
+        recv->state    = (byte == 0u) ? (uint8_t)ST_CRC_HI : (uint8_t)ST_VALUE;
         break;
 
     case ST_VALUE:
-        rx->value[rx->idx] = byte;
-        rx->crc_calc       = tlv_crc16_update(rx->crc_calc, byte);
-        rx->idx++;
-        if (rx->idx >= rx->len) {
-            rx->state = ST_CRC_HI;
+        recv->value[recv->idx] = byte;
+        recv->crc_calc       = tlv_crc16_update(recv->crc_calc, byte);
+        recv->idx++;
+        if (recv->idx >= recv->len) {
+            recv->state = ST_CRC_HI;
         }
         break;
 
     case ST_CRC_HI:
-        rx->crc_rx = (uint16_t)((uint16_t)byte << 8);
-        rx->state  = ST_CRC_LO;
+        recv->crc_rx = (uint16_t)((uint16_t)byte << 8);
+        recv->state  = ST_CRC_LO;
         break;
 
     case ST_CRC_LO:
-        rx->crc_rx = (uint16_t)(rx->crc_rx | (uint16_t)byte);
-        rx->state  = ST_SOF0;
+        recv->crc_rx = (uint16_t)(recv->crc_rx | (uint16_t)byte);
+        recv->state  = ST_SOF0;
 
-        if (rx->crc_rx != rx->crc_calc) {
-            rx->crc_errors++;
+        if (recv->crc_rx != recv->crc_calc) {
+            recv->crc_errors++;
             return TLV_ERR_CRC;
         }
 
-        out->tag   = rx->tag;
-        out->len   = rx->len;
-        out->value = (rx->len > 0u) ? rx->value : NULL;
-        rx->frames_ok++;
+        out->tag   = recv->tag;
+        out->len   = recv->len;
+        out->value = (recv->len > 0u) ? recv->value : NULL; // equals the uint8_t value[TLV_MAX_VALUE] of tlv_receiver_t
+        recv->frames_ok++;
         return TLV_OK;
 
     default:
         /* Cannot happen. Reset rather than sit in a bad state. */
-        tlv_rx_init(rx);
+        tlv_receiver_init(recv);
         break;
     }
 
     return TLV_INCOMPLETE;
 }
 
-size_t tlv_rx_feed(tlv_rx_t      *rx,
+size_t tlv_receiver_feed(tlv_receiver_t      *recv,
                    const uint8_t *data,
                    size_t         len,
                    tlv_frame_cb   cb,
@@ -276,12 +281,12 @@ size_t tlv_rx_feed(tlv_rx_t      *rx,
     size_t      delivered = 0u;
     tlv_frame_t frame;
 
-    if (rx == NULL || data == NULL) {
+    if (recv == NULL || data == NULL) {
         return 0u;
     }
 
     for (i = 0; i < len; i++) {
-        if (tlv_rx_feed_byte(rx, data[i], &frame) == TLV_OK) {
+        if (tlv_receiver_feed_byte(recv, data[i], &frame) == TLV_OK) {
             delivered++;
             if (cb != NULL) {
                 cb(&frame, ctx);
@@ -300,82 +305,82 @@ size_t tlv_rx_feed(tlv_rx_t      *rx,
  * and no struct padding can ever leak onto the wire.
  * =============================================================== */
 
-void tlv_writer_init(tlv_writer_t *w, uint8_t *buf, uint16_t cap)
+void tlv_writer_init(tlv_writer_t *writer, uint8_t *buf, uint16_t cap)
 {
-    if (w == NULL) {
+    if (writer == NULL) {
         return;
     }
-    w->buf = buf;
-    w->cap = cap;
-    w->len = 0u;
-    w->ok  = (buf != NULL) ? 1 : 0;
+    writer->buf = buf;
+    writer->cap = cap;
+    writer->len = 0u;
+    writer->ok  = (buf != NULL) ? 1 : 0;
 }
 
-static void writer_put_byte(tlv_writer_t *w, uint8_t b)
+static void writer_put_byte(tlv_writer_t *writer, uint8_t byte)
 {
-    if (!w->ok) {
+    if (!writer->ok) {
         return;
     }
-    if (w->len >= w->cap) {
-        w->ok = 0;            /* sticky: every later write is a no-op */
+    if (writer->len >= writer->cap) {
+        writer->ok = 0;            /* sticky: every later write is a no-op */
         return;
     }
-    w->buf[w->len] = b;
-    w->len++;
+    writer->buf[writer->len] = byte;
+    writer->len++;
 }
 
-void tlv_writer_put_u8(tlv_writer_t *w, uint8_t v)
+void tlv_writer_put_u8(tlv_writer_t *writer, uint8_t value)
 {
-    if (w == NULL) { return; }
-    writer_put_byte(w, v);
+    if (writer == NULL) { return; }
+    writer_put_byte(writer, value);
 }
 
-void tlv_writer_put_u16(tlv_writer_t *w, uint16_t v)
+void tlv_writer_put_u16(tlv_writer_t *writer, uint16_t value)
 {
-    if (w == NULL) { return; }
-    writer_put_byte(w, (uint8_t)(v >> 8));
-    writer_put_byte(w, (uint8_t)(v & 0xFFu));
+    if (writer == NULL) { return; }
+    writer_put_byte(writer, (uint8_t)(value >> 8));
+    writer_put_byte(writer, (uint8_t)(value & 0xFFu));
 }
 
-void tlv_writer_put_u32(tlv_writer_t *w, uint32_t v)
+void tlv_writer_put_u32(tlv_writer_t *writer, uint32_t value)
 {
-    if (w == NULL) { return; }
-    writer_put_byte(w, (uint8_t)(v >> 24));
-    writer_put_byte(w, (uint8_t)(v >> 16));
-    writer_put_byte(w, (uint8_t)(v >> 8));
-    writer_put_byte(w, (uint8_t)(v & 0xFFu));
+    if (writer == NULL) { return; }
+    writer_put_byte(writer, (uint8_t)(value >> 24));
+    writer_put_byte(writer, (uint8_t)(value >> 16));
+    writer_put_byte(writer, (uint8_t)(value >> 8));
+    writer_put_byte(writer, (uint8_t)(value & 0xFFu));
 }
 
 /* Signed values are cast to unsigned before shifting. Shifting a
  * negative number is undefined behaviour in C; casting first is
  * defined, and two's complement round-trips exactly. */
-void tlv_writer_put_i16(tlv_writer_t *w, int16_t v)
+void tlv_writer_put_i16(tlv_writer_t *writer, int16_t value)
 {
-    tlv_writer_put_u16(w, (uint16_t)v);
+    tlv_writer_put_u16(writer, (uint16_t)value);
 }
 
-void tlv_writer_put_i32(tlv_writer_t *w, int32_t v)
+void tlv_writer_put_i32(tlv_writer_t *writer, int32_t value)
 {
-    tlv_writer_put_u32(w, (uint32_t)v);
+    tlv_writer_put_u32(writer, (uint32_t)value);
 }
 
-void tlv_writer_put_bytes(tlv_writer_t *w, const uint8_t *src, uint16_t n)
+void tlv_writer_put_bytes(tlv_writer_t *writer, const uint8_t *src, uint16_t n)
 {
     uint16_t i;
 
-    if (w == NULL) { return; }
+    if (writer == NULL) { return; }
     if (src == NULL && n > 0u) {
-        w->ok = 0;
+        writer->ok = 0;
         return;
     }
     for (i = 0; i < n; i++) {
-        writer_put_byte(w, src[i]);
+        writer_put_byte(writer, src[i]);
     }
 }
 
-int tlv_writer_ok(const tlv_writer_t *w)
+int tlv_writer_ok(const tlv_writer_t *writer)
 {
-    return (w != NULL && w->ok) ? 1 : 0;
+    return (writer != NULL && writer->ok) ? 1 : 0;
 }
 
 /* ===============================================================
@@ -386,91 +391,91 @@ int tlv_writer_ok(const tlv_writer_t *w)
  * reader touch memory it does not own.
  * =============================================================== */
 
-void tlv_reader_init(tlv_reader_t *r, const uint8_t *buf, uint16_t len)
+void tlv_reader_init(tlv_reader_t *reader, const uint8_t *buf, uint16_t len)
 {
-    if (r == NULL) {
+    if (reader == NULL) {
         return;
     }
-    r->buf = buf;
-    r->len = len;
-    r->pos = 0u;
-    r->ok  = (buf != NULL || len == 0u) ? 1 : 0;
+    reader->buf = buf;
+    reader->len = len;
+    reader->pos = 0u;
+    reader->ok  = (buf != NULL || len == 0u) ? 1 : 0;
 }
 
-static uint8_t reader_get_byte(tlv_reader_t *r)
+static uint8_t reader_get_byte(tlv_reader_t *reader)
 {
-    uint8_t b;
+    uint8_t byte;
 
-    if (!r->ok) {
+    if (!reader->ok) {
         return 0u;
     }
-    if (r->pos >= r->len) {
-        r->ok = 0;
+    if (reader->pos >= reader->len) {
+        reader->ok = 0;
         return 0u;
     }
-    b = r->buf[r->pos];
-    r->pos++;
-    return b;
+    byte = reader->buf[reader->pos];
+    reader->pos++;
+    return byte;
 }
 
-uint8_t tlv_reader_get_u8(tlv_reader_t *r)
+uint8_t tlv_reader_get_u8(tlv_reader_t *reader)
 {
-    if (r == NULL) { return 0u; }
-    return reader_get_byte(r);
+    if (reader == NULL) { return 0u; }
+    return reader_get_byte(reader);
 }
 
-uint16_t tlv_reader_get_u16(tlv_reader_t *r)
+uint16_t tlv_reader_get_u16(tlv_reader_t *reader)
 {
     uint16_t hi, lo;
 
-    if (r == NULL) { return 0u; }
-    hi = (uint16_t)reader_get_byte(r);
-    lo = (uint16_t)reader_get_byte(r);
+    if (reader == NULL) { return 0u; }
+    hi = (uint16_t)reader_get_byte(reader);
+    lo = (uint16_t)reader_get_byte(reader);
     return (uint16_t)((hi << 8) | lo);
 }
 
-uint32_t tlv_reader_get_u32(tlv_reader_t *r)
+uint32_t tlv_reader_get_u32(tlv_reader_t *reader)
 {
-    uint32_t b0, b1, b2, b3;
+    uint32_t byte0, byte1, byte2, byte3;
 
-    if (r == NULL) { return 0u; }
-    b0 = (uint32_t)reader_get_byte(r);
-    b1 = (uint32_t)reader_get_byte(r);
-    b2 = (uint32_t)reader_get_byte(r);
-    b3 = (uint32_t)reader_get_byte(r);
-    return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    if (reader == NULL) { return 0u; }
+    byte0 = (uint32_t)reader_get_byte(reader);
+    byte1 = (uint32_t)reader_get_byte(reader);
+    byte2 = (uint32_t)reader_get_byte(reader);
+    byte3 = (uint32_t)reader_get_byte(reader);
+    return (byte0 << 24) | (byte1 << 16) | (byte2 << 8) | byte3;
 }
 
-int16_t tlv_reader_get_i16(tlv_reader_t *r)
+int16_t tlv_reader_get_i16(tlv_reader_t *reader)
 {
-    return (int16_t)tlv_reader_get_u16(r);
+    return (int16_t)tlv_reader_get_u16(reader);
 }
 
-int32_t tlv_reader_get_i32(tlv_reader_t *r)
+int32_t tlv_reader_get_i32(tlv_reader_t *reader)
 {
-    return (int32_t)tlv_reader_get_u32(r);
+    return (int32_t)tlv_reader_get_u32(reader);
 }
 
-void tlv_reader_get_bytes(tlv_reader_t *r, uint8_t *dst, uint16_t n)
+void tlv_reader_get_bytes(tlv_reader_t *reader, uint8_t *dst, uint16_t n)
 {
     uint16_t i;
 
-    if (r == NULL) { return; }
+    if (reader == NULL) { return; }
     if (dst == NULL && n > 0u) {
-        r->ok = 0;
+        reader->ok = 0;
         return;
     }
     for (i = 0; i < n; i++) {
-        dst[i] = reader_get_byte(r);
+        dst[i] = reader_get_byte(reader);
     }
 }
 
-int tlv_reader_ok(const tlv_reader_t *r)
+int tlv_reader_ok(const tlv_reader_t *reader)
 {
-    return (r != NULL && r->ok) ? 1 : 0;
+    return (reader != NULL && reader->ok) ? 1 : 0;
 }
 
-int tlv_reader_done(const tlv_reader_t *r)
+int tlv_reader_done(const tlv_reader_t *reader)
 {
-    return (r != NULL && r->ok && r->pos == r->len) ? 1 : 0;
+    return (reader != NULL && reader->ok && reader->pos == reader->len) ? 1 : 0;
 }

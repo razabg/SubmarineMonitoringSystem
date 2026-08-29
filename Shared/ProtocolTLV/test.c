@@ -1,48 +1,43 @@
 /*
- * test_tlv.c - unit tests for the TLV protocol.
+ * test.c - unit tests for the TLV protocol.
  *
- * No test framework. A framework is one more thing to install on
- * every machine that builds this, and the whole harness here is
- * twenty lines. printf is fine: this file never goes near the MCU.
+ * No test framework. printf is fine here: this file never goes
+ * near the MCU, only tlv.c and tlv_names.c do.
  *
  * Build and run:  make test
  */
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
-#include "Tlv.h"
-#include "TlvNames.h"
+#include "tlv.h"
+#include "tlv_names.h"
 
 /* --------------------------------------------------------------- */
 
 static int g_checks;
 static int g_failures;
 
-#define CHECK(cond, msg)                                              \
-    do                                                                \
-    {                                                                 \
-        g_checks++;                                                   \
-        if (!(cond))                                                  \
-        {                                                             \
-            g_failures++;                                             \
-            printf("  FAIL  %s:%d  %s\n", __FILE__, __LINE__, (msg)); \
-        }                                                             \
+#define CHECK(cond, msg)                                               \
+    do {                                                               \
+        g_checks++;                                                    \
+        if (!(cond)) {                                                 \
+            g_failures++;                                              \
+            printf("  FAIL  %s:%d  %s\n", __FILE__, __LINE__, (msg));  \
+        }                                                               \
     } while (0)
 
-#define CHECK_EQ(a, b, msg)                                   \
-    do                                                        \
-    {                                                         \
-        long _a = (long)(a);                                  \
-        long _b = (long)(b);                                  \
-        g_checks++;                                           \
-        if (_a != _b)                                         \
-        {                                                     \
-            g_failures++;                                     \
-            printf("  FAIL  %s:%d  %s (got %ld, want %ld)\n", \
-                   __FILE__, __LINE__, (msg), _a, _b);        \
-        }                                                     \
+#define CHECK_EQ(a, b, msg)                                             \
+    do {                                                               \
+        long _a = (long)(a);                                           \
+        long _b = (long)(b);                                           \
+        g_checks++;                                                    \
+        if (_a != _b) {                                                \
+            g_failures++;                                              \
+            printf("  FAIL  %s:%d  %s (got %ld, want %ld)\n",          \
+                   __FILE__, __LINE__, (msg), _a, _b);                 \
+        }                                                               \
     } while (0)
 
 static void banner(const char *name)
@@ -60,9 +55,6 @@ static void test_crc_known_vector(void)
     uint16_t crc = tlv_crc16(input, 9);
 
     banner("crc known vector");
-    /* CRC-16/CCITT-FALSE of "123456789" is 0x29B1. If this fails,
-     * our CRC is not the standard one and no other side will
-     * interoperate with us. */
     CHECK_EQ(crc, 0x29B1, "CRC-16/CCITT-FALSE check value");
 }
 
@@ -72,10 +64,10 @@ static void test_crc_known_vector(void)
 
 static void test_roundtrip_empty(void)
 {
-    uint8_t buf[TLV_MAX_FRAME];
-    size_t n = 0;
-    size_t consumed = 0;
-    tlv_frame_t f;
+    uint8_t      buf[TLV_MAX_FRAME];
+    size_t       n = 0;
+    size_t       consumed = 0;
+    tlv_frame_t  f;
     tlv_status_t rc;
 
     banner("roundtrip, empty payload");
@@ -100,17 +92,16 @@ static void test_roundtrip_empty(void)
 
 static void test_roundtrip_max(void)
 {
-    uint8_t payload[TLV_MAX_VALUE];
-    uint8_t buf[TLV_MAX_FRAME];
-    size_t n = 0;
-    tlv_frame_t f;
+    uint8_t      payload[TLV_MAX_VALUE];
+    uint8_t      buf[TLV_MAX_FRAME];
+    size_t       n = 0;
+    tlv_frame_t  f;
     tlv_status_t rc;
-    int i;
+    int          i;
 
     banner("roundtrip, 255 byte payload");
 
-    for (i = 0; i < (int)TLV_MAX_VALUE; i++)
-    {
+    for (i = 0; i < (int)TLV_MAX_VALUE; i++) {
         payload[i] = (uint8_t)i;
     }
 
@@ -126,28 +117,23 @@ static void test_roundtrip_max(void)
 }
 
 /* ===============================================================
- * 4. A payload full of SOF bytes must not confuse anything.
+ * 4. A payload full of sync bytes must not confuse anything.
  *    This is the test that proves we do not need byte stuffing.
  * =============================================================== */
 
-static void test_sof_inside_payload(void)
+static void test_sync_bytes_inside_payload(void)
 {
-    uint8_t payload[16];
-    uint8_t buf[TLV_MAX_FRAME];
-    size_t n = 0;
-    tlv_frame_t f;
+    uint8_t      payload[16];
+    uint8_t      buf[TLV_MAX_FRAME];
+    size_t       n = 0;
+    tlv_frame_t  f;
     tlv_status_t rc;
-    int i;
+    int          i;
 
     banner("sync bytes inside the payload");
 
-    /* The payload is the sync pair over and over. If the parser
-     * ever looked for markers while inside a frame, this breaks it.
-     * It does not, because past the header it is counting bytes.
-     * That is why no byte stuffing is needed. */
-    for (i = 0; i < (int)sizeof(payload); i += 2)
-    {
-        payload[i] = (uint8_t)TLV_SOF0;
+    for (i = 0; i < (int)sizeof(payload); i += 2) {
+        payload[i]     = (uint8_t)TLV_SOF0;
         payload[i + 1] = (uint8_t)TLV_SOF1;
     }
 
@@ -168,7 +154,7 @@ static void test_encode_rejects(void)
 {
     uint8_t small[4];
     uint8_t payload[8] = {0};
-    size_t n = 0;
+    size_t  n = 0;
 
     banner("encode refuses bad input");
 
@@ -182,17 +168,16 @@ static void test_encode_rejects(void)
 
 static void test_decode_rejects(void)
 {
-    uint8_t buf[TLV_MAX_FRAME];
-    uint8_t payload[4] = {1, 2, 3, 4};
-    size_t n = 0;
-    tlv_frame_t f;
-    size_t i;
+    uint8_t      buf[TLV_MAX_FRAME];
+    uint8_t      payload[4] = {1, 2, 3, 4};
+    size_t       n = 0;
+    tlv_frame_t  f;
+    int          i;
 
     banner("decode refuses bad input");
 
     (void)tlv_encode(TLV_TAG_DATA_REPORT, payload, 4, buf, sizeof(buf), &n);
 
-    /* no SOF */
     buf[0] = 0x00;
     CHECK_EQ(tlv_decode(buf, n, &f, NULL), TLV_ERR_NO_SOF, "missing sync 0");
     buf[0] = (uint8_t)TLV_SOF0;
@@ -201,16 +186,12 @@ static void test_decode_rejects(void)
     CHECK_EQ(tlv_decode(buf, n, &f, NULL), TLV_ERR_NO_SOF, "missing sync 1");
     buf[1] = (uint8_t)TLV_SOF1;
 
-    /* truncated at every possible cut point */
-    for (i = 0; i < n; i++)
-    {
-        tlv_status_t rc = tlv_decode(buf, i, &f, NULL);
+    for (i = 0; i < (int)n; i++) {
+        tlv_status_t rc = tlv_decode(buf, (size_t)i, &f, NULL);
         CHECK(rc == TLV_INCOMPLETE, "short buffer reports INCOMPLETE");
     }
 
-    /* one flipped bit anywhere in the frame must be caught */
-    for (i = 0; i < n; i++)
-    {
+    for (i = 0; i < (int)n; i++) {
         tlv_status_t rc;
         buf[i] ^= 0x01u;
         rc = tlv_decode(buf, n, &f, NULL);
@@ -218,17 +199,15 @@ static void test_decode_rejects(void)
         buf[i] ^= 0x01u;
     }
 
-    /* and the good frame still decodes after all that poking */
     CHECK_EQ(tlv_decode(buf, n, &f, NULL), TLV_OK, "frame still intact");
 }
 
 /* ===============================================================
- * 6. Streaming parser, split at every possible boundary
+ * 6. Streaming receiver, split at every possible boundary
  * =============================================================== */
 
-typedef struct
-{
-    int count;
+typedef struct {
+    int     count;
     uint8_t tag;
     uint8_t len;
     uint8_t value[TLV_MAX_VALUE];
@@ -240,38 +219,35 @@ static void collect(const tlv_frame_t *f, void *ctx)
     c->count++;
     c->tag = f->tag;
     c->len = f->len;
-    if (f->len > 0)
-    {
+    if (f->len > 0) {
         memcpy(c->value, f->value, f->len);
     }
 }
 
 static void test_stream_split(void)
 {
-    uint8_t payload[20];
-    uint8_t buf[TLV_MAX_FRAME];
-    size_t n = 0;
-    size_t cut;
-    int i;
+    uint8_t     payload[20];
+    uint8_t     buf[TLV_MAX_FRAME];
+    size_t      n = 0;
+    size_t      cut;
+    int         i;
 
     banner("stream split at every byte boundary");
 
-    for (i = 0; i < 20; i++)
-    {
+    for (i = 0; i < 20; i++) {
         payload[i] = (uint8_t)(0x30 + i);
     }
     (void)tlv_encode(TLV_TAG_KEEP_ALIVE, payload, 20, buf, sizeof(buf), &n);
 
-    for (cut = 0; cut <= n; cut++)
-    {
-        tlv_rx_t rx;
-        collector_t c;
+    for (cut = 0; cut <= n; cut++) {
+        tlv_receiver_t rx;
+        collector_t    c;
 
         memset(&c, 0, sizeof(c));
-        tlv_rx_init(&rx);
+        tlv_receiver_init(&rx);
 
-        tlv_rx_feed(&rx, buf, cut, collect, &c);
-        tlv_rx_feed(&rx, buf + cut, n - cut, collect, &c);
+        tlv_receiver_feed(&rx, buf, cut, collect, &c);
+        tlv_receiver_feed(&rx, buf + cut, n - cut, collect, &c);
 
         CHECK_EQ(c.count, 1, "exactly one frame no matter where we cut");
         CHECK_EQ(c.tag, TLV_TAG_KEEP_ALIVE, "tag survived the split");
@@ -285,13 +261,13 @@ static void test_stream_split(void)
 
 static void test_stream_back_to_back(void)
 {
-    uint8_t stream[TLV_MAX_FRAME * 3];
-    size_t total = 0;
-    size_t n = 0;
-    tlv_rx_t rx;
-    collector_t c;
-    uint8_t p1[1] = {0xAA};
-    uint8_t p2[3] = {1, 2, 3};
+    uint8_t        stream[TLV_MAX_FRAME * 3];
+    size_t         total = 0;
+    size_t         n = 0;
+    tlv_receiver_t rx;
+    collector_t    c;
+    uint8_t        p1[1] = {0xAA};
+    uint8_t        p2[3] = {1, 2, 3};
 
     banner("three frames in one buffer");
 
@@ -305,8 +281,8 @@ static void test_stream_back_to_back(void)
     total += n;
 
     memset(&c, 0, sizeof(c));
-    tlv_rx_init(&rx);
-    CHECK_EQ(tlv_rx_feed(&rx, stream, total, collect, &c), 3, "three delivered");
+    tlv_receiver_init(&rx);
+    CHECK_EQ(tlv_receiver_feed(&rx, stream, total, collect, &c), 3, "three delivered");
     CHECK_EQ(rx.frames_ok, 3, "counter agrees");
     CHECK_EQ(rx.crc_errors, 0, "no CRC errors");
     CHECK_EQ(rx.bytes_dropped, 0, "nothing dropped");
@@ -314,28 +290,23 @@ static void test_stream_back_to_back(void)
 
 /* ===============================================================
  * 8. Resync: garbage first, then a good frame.
- *    This is the case where the program starts while the LNC is
- *    already mid-message.
  * =============================================================== */
 
 static void test_stream_resync(void)
 {
-    uint8_t stream[64];
-    uint8_t frame[TLV_MAX_FRAME];
-    size_t n = 0;
-    size_t total = 0;
-    tlv_rx_t rx;
-    collector_t c;
-    uint8_t p[2] = {0x11, 0x22};
-    int i;
+    uint8_t        stream[64];
+    uint8_t        frame[TLV_MAX_FRAME];
+    size_t         n = 0;
+    size_t         total = 0;
+    tlv_receiver_t rx;
+    collector_t    c;
+    uint8_t        p[2] = {0x11, 0x22};
+    int            i;
 
     banner("resync after garbage");
 
-    /* 13 bytes of junk containing two lone 0xA5 bytes. With a
-     * one-byte marker each of these would have started a fake
-     * frame whose fake length swallowed the real one. */
-    for (i = 0; i < 13; i++)
-    {
+    /* 13 bytes of junk containing two lone 0xA5 bytes. */
+    for (i = 0; i < 13; i++) {
         stream[i] = ((i == 5) || (i == 9)) ? (uint8_t)TLV_SOF0
                                            : (uint8_t)(0xFF - i);
     }
@@ -346,8 +317,8 @@ static void test_stream_resync(void)
     total += n;
 
     memset(&c, 0, sizeof(c));
-    tlv_rx_init(&rx);
-    tlv_rx_feed(&rx, stream, total, collect, &c);
+    tlv_receiver_init(&rx);
+    tlv_receiver_feed(&rx, stream, total, collect, &c);
 
     CHECK_EQ(c.count, 1, "the real frame still arrives");
     CHECK_EQ(c.tag, TLV_TAG_OBJECT_DETECTED, "correct tag");
@@ -355,24 +326,23 @@ static void test_stream_resync(void)
 }
 
 /* ===============================================================
- * 9b. A corrupted frame must not take the next one down with it.
- *     This is the noise-on-the-cable case.
+ * 9. A corrupted frame must not take the next one down with it.
  * =============================================================== */
 
 static void test_stream_recovers_after_bad_frame(void)
 {
-    uint8_t stream[TLV_MAX_FRAME * 2];
-    size_t total = 0;
-    size_t n = 0;
-    tlv_rx_t rx;
-    collector_t c;
-    uint8_t p1[6] = {1, 2, 3, 4, 5, 6};
-    uint8_t p2[2] = {0xC0, 0xDE};
+    uint8_t        stream[TLV_MAX_FRAME * 2];
+    size_t         total = 0;
+    size_t         n = 0;
+    tlv_receiver_t rx;
+    collector_t    c;
+    uint8_t        p1[6] = {1, 2, 3, 4, 5, 6};
+    uint8_t        p2[2] = {0xC0, 0xDE};
 
     banner("recovery after a corrupted frame");
 
     (void)tlv_encode(TLV_TAG_DATA_REPORT, p1, 6, stream, sizeof(stream), &n);
-    stream[TLV_HEADER_SIZE + 2] ^= 0xFFu; /* smash a payload byte */
+    stream[TLV_HEADER_SIZE + 2] ^= 0xFFu;
     total = n;
 
     (void)tlv_encode(TLV_TAG_ACK, p2, 2,
@@ -380,8 +350,8 @@ static void test_stream_recovers_after_bad_frame(void)
     total += n;
 
     memset(&c, 0, sizeof(c));
-    tlv_rx_init(&rx);
-    tlv_rx_feed(&rx, stream, total, collect, &c);
+    tlv_receiver_init(&rx);
+    tlv_receiver_feed(&rx, stream, total, collect, &c);
 
     CHECK_EQ(rx.crc_errors, 1, "the damaged frame was rejected");
     CHECK_EQ(c.count, 1, "the good frame after it still arrived");
@@ -389,60 +359,53 @@ static void test_stream_recovers_after_bad_frame(void)
 }
 
 /* ===============================================================
- * 9c. A5 A5 5A is a valid start. A naive hunter that resets to
- *     "looking for A5" on a mismatch would miss it.
+ * 10. A5 A5 5A must still start a frame.
  * =============================================================== */
 
 static void test_stream_double_sync_byte(void)
 {
-    uint8_t stream[TLV_MAX_FRAME + 4];
-    uint8_t frame[TLV_MAX_FRAME];
-    size_t n = 0;
-    tlv_rx_t rx;
-    collector_t c;
-    uint8_t p[1] = {0x77};
+    uint8_t        stream[TLV_MAX_FRAME + 4];
+    uint8_t        frame[TLV_MAX_FRAME];
+    size_t         n = 0;
+    tlv_receiver_t rx;
+    collector_t    c;
+    uint8_t        p[1] = {0x77};
 
     banner("A5 A5 5A must still start a frame");
 
     (void)tlv_encode(TLV_TAG_QUERY_END, p, 1, frame, sizeof(frame), &n);
 
-    stream[0] = (uint8_t)TLV_SOF0; /* an extra stray A5 in front */
+    stream[0] = (uint8_t)TLV_SOF0;
     memcpy(stream + 1, frame, n);
 
     memset(&c, 0, sizeof(c));
-    tlv_rx_init(&rx);
-    tlv_rx_feed(&rx, stream, n + 1u, collect, &c);
+    tlv_receiver_init(&rx);
+    tlv_receiver_feed(&rx, stream, n + 1u, collect, &c);
 
     CHECK_EQ(c.count, 1, "frame found after the stray sync byte");
     CHECK_EQ(c.tag, TLV_TAG_QUERY_END, "correct tag");
 }
 
 /* ===============================================================
- * 9. Random bytes must never crash the parser and must never
- *    produce a frame we then mis-handle.
+ * 11. Random bytes must never crash the receiver.
  * =============================================================== */
 
 static void test_stream_fuzz(void)
 {
-    tlv_rx_t rx;
-    int round;
+    tlv_receiver_t rx;
+    int            round;
 
     banner("random bytes, 200k of them");
 
-    tlv_rx_init(&rx);
-    srand(12345); /* fixed seed: a failure must be reproducible */
+    tlv_receiver_init(&rx);
+    srand(12345);
 
-    for (round = 0; round < 200000; round++)
-    {
+    for (round = 0; round < 200000; round++) {
         tlv_frame_t f;
-        uint8_t b = (uint8_t)(rand() & 0xFF);
-        tlv_status_t rc = tlv_rx_feed_byte(&rx, b, &f);
+        uint8_t     b = (uint8_t)(rand() & 0xFF);
+        tlv_status_t rc = tlv_receiver_feed_byte(&rx, b, &f);
 
-        if (rc == TLV_OK)
-        {
-            /* A random stream will hit a valid CRC roughly once in
-             * 65536 frames. When it does, the frame must still be
-             * self-consistent. */
+        if (rc == TLV_OK) {
             CHECK(f.len == 0 || f.value != NULL, "value pointer matches len");
         }
     }
@@ -453,31 +416,29 @@ static void test_stream_fuzz(void)
 }
 
 /* ===============================================================
- * 10. Writer and reader
+ * 12. Writer and reader
  * =============================================================== */
 
 static void test_writer_reader(void)
 {
-    uint8_t payload[TLV_MAX_VALUE];
-    uint8_t frame[TLV_MAX_FRAME];
+    uint8_t      payload[TLV_MAX_VALUE];
+    uint8_t      frame[TLV_MAX_FRAME];
     tlv_writer_t w;
     tlv_reader_t r;
-    tlv_frame_t f;
-    size_t n = 0;
-    uint8_t raw[3] = {0xDE, 0xAD, 0xBE};
-    uint8_t raw_back[3];
+    tlv_frame_t  f;
+    size_t       n = 0;
+    uint8_t      raw[3] = {0xDE, 0xAD, 0xBE};
+    uint8_t      raw_back[3];
 
     banner("writer and reader roundtrip");
 
-    /* A plausible data report: time, temperature in hundredths of
-     * a degree, humidity, light, battery, mode. */
     tlv_writer_init(&w, payload, sizeof(payload));
-    tlv_writer_put_u32(&w, 1756400000u); /* unix seconds       */
-    tlv_writer_put_i16(&w, -1250);       /* -12.50 C           */
-    tlv_writer_put_u16(&w, 4830);        /* 48.30 %            */
-    tlv_writer_put_u16(&w, 712);         /* light raw          */
-    tlv_writer_put_u16(&w, 3300);        /* 3.300 V            */
-    tlv_writer_put_u8(&w, 2);            /* mode = Error       */
+    tlv_writer_put_u32(&w, 1756400000u);
+    tlv_writer_put_i16(&w, -1250);
+    tlv_writer_put_u16(&w, 4830);
+    tlv_writer_put_u16(&w, 712);
+    tlv_writer_put_u16(&w, 3300);
+    tlv_writer_put_u8 (&w, 2);
     tlv_writer_put_bytes(&w, raw, 3);
     CHECK(tlv_writer_ok(&w), "everything fitted");
     CHECK_EQ(w.len, 4 + 2 + 2 + 2 + 2 + 1 + 3, "expected byte count");
@@ -500,29 +461,29 @@ static void test_writer_reader(void)
 
 static void test_writer_overflow(void)
 {
-    uint8_t small[3];
+    uint8_t      small[3];
     tlv_writer_t w;
 
     banner("writer stops at the end of its buffer");
 
     tlv_writer_init(&w, small, sizeof(small));
-    tlv_writer_put_u32(&w, 0x11223344u); /* needs 4, has 3 */
+    tlv_writer_put_u32(&w, 0x11223344u);
     CHECK(!tlv_writer_ok(&w), "overflow reported");
 
-    tlv_writer_put_u8(&w, 0xFF); /* must be a no-op now */
+    tlv_writer_put_u8(&w, 0xFF);
     CHECK(!tlv_writer_ok(&w), "error is sticky");
     CHECK(w.len <= sizeof(small), "never wrote past the end");
 }
 
 static void test_reader_underflow(void)
 {
-    uint8_t two[2] = {0x01, 0x02};
+    uint8_t      two[2] = {0x01, 0x02};
     tlv_reader_t r;
 
     banner("reader stops at the end of the payload");
 
     tlv_reader_init(&r, two, sizeof(two));
-    (void)tlv_reader_get_u32(&r); /* asks for 4, has 2 */
+    (void)tlv_reader_get_u32(&r);
     CHECK(!tlv_reader_ok(&r), "underflow reported");
 
     CHECK_EQ(tlv_reader_get_u8(&r), 0, "reads past the end return zero");
@@ -530,7 +491,7 @@ static void test_reader_underflow(void)
 }
 
 /* ===============================================================
- * 11. Tag names, so a typo in the table shows up here
+ * 13. Tag names
  * =============================================================== */
 
 static void test_tag_names(void)
@@ -552,7 +513,7 @@ int main(void)
     test_crc_known_vector();
     test_roundtrip_empty();
     test_roundtrip_max();
-    test_sof_inside_payload();
+    test_sync_bytes_inside_payload();
     test_encode_rejects();
     test_decode_rejects();
     test_stream_split();

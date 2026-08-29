@@ -14,8 +14,8 @@
  */
 
 #include <stdio.h>
-#include "Tlv.h"
-#include "TlvNames.h"
+#include "tlv.h"
+#include "tlv_names.h"
 
 /* =============================================================
  * THE FAKE WIRE
@@ -34,25 +34,25 @@ static void lnc_send_keepalive(uint32_t time, int16_t temp, uint16_t hum,
 {
     uint8_t      payload[TLV_MAX_VALUE];
     uint8_t      frame[TLV_MAX_FRAME];
-    tlv_writer_t w;
+    tlv_writer_t writer;
     size_t       frame_len = 0;
 
     /* --- step 1: chop the numbers into bytes --- */
-    tlv_writer_init(&w, payload, sizeof(payload));
-    tlv_writer_put_u32(&w, time);
-    tlv_writer_put_i16(&w, temp);
-    tlv_writer_put_u16(&w, hum);
-    tlv_writer_put_u16(&w, light);
-    tlv_writer_put_u16(&w, batt);
-    tlv_writer_put_u8 (&w, mode);
+    tlv_writer_init(&writer, payload, sizeof(payload));
+    tlv_writer_put_u32(&writer, time);
+    tlv_writer_put_i16(&writer, temp);
+    tlv_writer_put_u16(&writer, hum);
+    tlv_writer_put_u16(&writer, light);
+    tlv_writer_put_u16(&writer, batt);
+    tlv_writer_put_u8 (&writer, mode);
 
     /* --- step 2: did it fit? if not, drop it --- */
-    if (!tlv_writer_ok(&w)) {
+    if (!tlv_writer_ok(&writer)) {
         return;                    /* never send half a message */
     }
 
     /* --- step 3: wrap it in the envelope --- */
-    if (tlv_encode(TLV_TAG_KEEP_ALIVE, payload, (uint8_t)w.len,
+    if (tlv_encode(TLV_TAG_KEEP_ALIVE, payload, (uint8_t)writer.len,
                    frame, sizeof(frame), &frame_len) != TLV_OK) {
         return;
     }
@@ -77,13 +77,13 @@ static void lnc_send_keepalive(uint32_t time, int16_t temp, uint16_t hum,
  * ============================================================= */
 
 /* One of these lives for the whole program, next to the serial port. */
-static tlv_rx_t g_rx;
+static tlv_receiver_t g_recv;
 
 /* Called once per complete, CRC-checked message. THIS is the decode
  * you were looking for: turning the value bytes back into numbers. */
 static void cc_handle_message(const tlv_frame_t *f)
 {
-    tlv_reader_t r;
+    tlv_reader_t reader;
 
     printf("CC : got %s (tag 0x%02X), %u value bytes\n",
            tlv_tag_name(f->tag), f->tag, f->len);
@@ -96,15 +96,15 @@ static void cc_handle_message(const tlv_frame_t *f)
         uint16_t hum, light, batt;
         uint8_t  mode;
 
-        tlv_reader_init(&r, f->value, f->len);
-        time  = tlv_reader_get_u32(&r);     /* same order as the writer */
-        temp  = tlv_reader_get_i16(&r);
-        hum   = tlv_reader_get_u16(&r);
-        light = tlv_reader_get_u16(&r);
-        batt  = tlv_reader_get_u16(&r);
-        mode  = tlv_reader_get_u8 (&r);
+        tlv_reader_init(&reader, f->value, f->len);
+        time  = tlv_reader_get_u32(&reader);     /* same order as the writer */
+        temp  = tlv_reader_get_i16(&reader);
+        hum   = tlv_reader_get_u16(&reader);
+        light = tlv_reader_get_u16(&reader);
+        batt  = tlv_reader_get_u16(&reader);
+        mode  = tlv_reader_get_u8 (&reader);
 
-        if (!tlv_reader_done(&r)) {
+        if (!tlv_reader_done(&reader)) {
             printf("CC : payload was the wrong size - ignoring\n");
             return;
         }
@@ -116,8 +116,8 @@ static void cc_handle_message(const tlv_frame_t *f)
     }
 
     case TLV_TAG_OBJECT_DETECTED:
-        tlv_reader_init(&r, f->value, f->len);
-        printf("CC :   object detected at %u\n", tlv_reader_get_u32(&r));
+        tlv_reader_init(&reader, f->value, f->len);
+        printf("CC :   object detected at %u\n", tlv_reader_get_u32(&reader));
         break;
 
     default:
@@ -133,7 +133,7 @@ static void cc_on_bytes(const uint8_t *buf, size_t n)
 
     for (i = 0; i < n; i++) {
         tlv_frame_t  f;
-        tlv_status_t st = tlv_rx_feed_byte(&g_rx, buf[i], &f);
+        tlv_status_t st = tlv_receiver_feed_byte(&g_recv, buf[i], &f);
 
         if (st == TLV_OK) {
             cc_handle_message(&f);       /* use it NOW, before the next byte */
@@ -152,7 +152,7 @@ int main(void)
 {
     size_t pos = 0;
 
-    tlv_rx_init(&g_rx);
+    tlv_receiver_init(&g_recv);
 
     printf("--- the LNC sends two messages ---\n");
     lnc_send_keepalive(1756400000u, 2140, 4820, 712, 3300, 0);
@@ -172,7 +172,7 @@ int main(void)
     }
 
     printf("\ncounters: ok=%u crc_errors=%u dropped=%u\n",
-           (unsigned)g_rx.frames_ok, (unsigned)g_rx.crc_errors,
-           (unsigned)g_rx.bytes_dropped);
+           (unsigned)g_recv.frames_ok, (unsigned)g_recv.crc_errors,
+           (unsigned)g_recv.bytes_dropped);
     return 0;
 }

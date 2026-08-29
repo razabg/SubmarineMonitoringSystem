@@ -150,11 +150,12 @@ extern "C"
      * that buffer is reused.
      * --------------------------------------------------------------- */
 
+    /* One decoded TLV frame: tag, length, and a view into the value bytes. */
     typedef struct
     {
-        uint8_t tag;
-        uint8_t len;
-        const uint8_t *value;
+        uint8_t tag;         /* one of TLV_TAG_*                */
+        uint8_t len;         /* number of bytes in value        */
+        const uint8_t *value; /* NULL when len == 0              */
     } tlv_frame_t;
 
     /* ---------------------------------------------------------------
@@ -226,23 +227,25 @@ extern "C"
      * member. Do not put it on a small task stack.
      * --------------------------------------------------------------- */
 
+    /* State for the streaming (byte-at-a-time) receiver, plus running
+     * diagnostic counters. Lives across calls to tlv_receiver_feed_byte(). */
     typedef struct
     {
-        uint8_t state;
-        uint8_t tag;
-        uint8_t len;
-        uint8_t idx;
-        uint16_t crc_calc;
-        uint16_t crc_rx;
-        uint8_t value[TLV_MAX_VALUE];
+        uint8_t state;    /* which byte of the frame is expected next */
+        uint8_t tag;      /* tag of the frame being assembled         */
+        uint8_t len;      /* declared length of that frame's value    */
+        uint8_t idx;      /* value bytes collected so far             */
+        uint16_t crc_calc; /* CRC computed over bytes seen so far      */
+        uint16_t crc_rx;   /* CRC read from the wire, for comparison   */
+        uint8_t value[TLV_MAX_VALUE]; /* value bytes collected so far  */
 
         /* counters, for diagnostics and for the sermon tool */
         uint32_t frames_ok;
         uint32_t crc_errors;
         uint32_t bytes_dropped;
-    } tlv_rx_t;
+    } tlv_receiver_t;
 
-    void tlv_rx_init(tlv_rx_t *rx);
+    void tlv_receiver_init(tlv_receiver_t *recv);
 
     /*
      * Feed one byte.
@@ -250,13 +253,13 @@ extern "C"
      *   TLV_INCOMPLETE keep going
      *   TLV_ERR_CRC    a frame arrived damaged and was thrown away
      */
-    tlv_status_t tlv_rx_feed_byte(tlv_rx_t *rx, uint8_t byte, tlv_frame_t *out);
+    tlv_status_t tlv_receiver_feed_byte(tlv_receiver_t *recv, uint8_t byte, tlv_frame_t *out);
 
     /* Callback form, for draining a whole read() buffer in one call.
      * Returns how many good frames were delivered. */
     typedef void (*tlv_frame_cb)(const tlv_frame_t *frame, void *ctx);
 
-    size_t tlv_rx_feed(tlv_rx_t *rx,
+    size_t tlv_receiver_feed(tlv_receiver_t *recv,
                        const uint8_t *data,
                        size_t len,
                        tlv_frame_cb cb,
@@ -275,40 +278,44 @@ extern "C"
      * there is no way to read past the buffer.
      * --------------------------------------------------------------- */
 
+    /* Appends fields into a payload buffer, most significant byte first,
+     * with a sticky ok flag so overflow can be checked once at the end. */
     typedef struct
     {
-        uint8_t *buf;
-        uint16_t cap;
-        uint16_t len;
-        int ok;
+        uint8_t *buf; /* destination buffer          */
+        uint16_t cap; /* buffer capacity, in bytes    */
+        uint16_t len; /* bytes written so far         */
+        int ok;       /* 1 while every write has fit  */
     } tlv_writer_t;
 
-    void tlv_writer_init(tlv_writer_t *w, uint8_t *buf, uint16_t cap);
-    void tlv_writer_put_u8(tlv_writer_t *w, uint8_t v);
-    void tlv_writer_put_u16(tlv_writer_t *w, uint16_t v);
-    void tlv_writer_put_u32(tlv_writer_t *w, uint32_t v);
-    void tlv_writer_put_i16(tlv_writer_t *w, int16_t v);
-    void tlv_writer_put_i32(tlv_writer_t *w, int32_t v);
-    void tlv_writer_put_bytes(tlv_writer_t *w, const uint8_t *src, uint16_t n);
-    int tlv_writer_ok(const tlv_writer_t *w); /* 1 = every write fitted */
+    void tlv_writer_init(tlv_writer_t *writer, uint8_t *buf, uint16_t cap);
+    void tlv_writer_put_u8(tlv_writer_t *writer, uint8_t value);
+    void tlv_writer_put_u16(tlv_writer_t *writer, uint16_t value);
+    void tlv_writer_put_u32(tlv_writer_t *writer, uint32_t value);
+    void tlv_writer_put_i16(tlv_writer_t *writer, int16_t value);
+    void tlv_writer_put_i32(tlv_writer_t *writer, int32_t value);
+    void tlv_writer_put_bytes(tlv_writer_t *writer, const uint8_t *src, uint16_t n);
+    int tlv_writer_ok(const tlv_writer_t *writer); /* 1 = every write fitted */
 
+    /* Reads fields back out of a payload buffer, most significant byte
+     * first, with a sticky ok flag so underrun can be checked once at the end. */
     typedef struct
     {
-        const uint8_t *buf;
-        uint16_t len;
-        uint16_t pos;
-        int ok;
+        const uint8_t *buf; /* source buffer                    */
+        uint16_t len;       /* buffer length, in bytes          */
+        uint16_t pos;       /* read cursor                      */
+        int ok;             /* 1 while no read has run past the end */
     } tlv_reader_t;
 
-    void tlv_reader_init(tlv_reader_t *r, const uint8_t *buf, uint16_t len);
-    uint8_t tlv_reader_get_u8(tlv_reader_t *r);
-    uint16_t tlv_reader_get_u16(tlv_reader_t *r);
-    uint32_t tlv_reader_get_u32(tlv_reader_t *r);
-    int16_t tlv_reader_get_i16(tlv_reader_t *r);
-    int32_t tlv_reader_get_i32(tlv_reader_t *r);
-    void tlv_reader_get_bytes(tlv_reader_t *r, uint8_t *dst, uint16_t n);
-    int tlv_reader_ok(const tlv_reader_t *r);   /* 1 = no overrun    */
-    int tlv_reader_done(const tlv_reader_t *r); /* 1 = ok and empty  */
+    void tlv_reader_init(tlv_reader_t *reader, const uint8_t *buf, uint16_t len);
+    uint8_t tlv_reader_get_u8(tlv_reader_t *reader);
+    uint16_t tlv_reader_get_u16(tlv_reader_t *reader);
+    uint32_t tlv_reader_get_u32(tlv_reader_t *reader);
+    int16_t tlv_reader_get_i16(tlv_reader_t *reader);
+    int32_t tlv_reader_get_i32(tlv_reader_t *reader);
+    void tlv_reader_get_bytes(tlv_reader_t *reader, uint8_t *dst, uint16_t n);
+    int tlv_reader_ok(const tlv_reader_t *reader);   /* 1 = no overrun    */
+    int tlv_reader_done(const tlv_reader_t *reader); /* 1 = ok and empty  */
 
 #ifdef __cplusplus
 }

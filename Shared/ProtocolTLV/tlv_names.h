@@ -6,7 +6,7 @@
 #ifndef SMS_TLV_NAMES_H
 #define SMS_TLV_NAMES_H
 
-#include "Tlv.h"
+#include "tlv.h"
 
 #ifdef __cplusplus
 extern "C" {
