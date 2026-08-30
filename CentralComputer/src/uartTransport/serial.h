@@ -1,20 +1,24 @@
 /*
- * serial.h - raw byte transport over a POSIX serial port.
+ * serial.hpp - raw byte transport over a POSIX serial port, C++ version.
  *
- * This is an ADT (abstract data type): callers only ever hold a
- * serial_t *. The struct's actual fields are defined in serial.c and
- * are not visible here - callers may not read or write them directly,
- * only call these functions.
+ * RAII: the constructor opens the port, the destructor always closes it,
+ * whether the object goes out of scope normally or because of an
+ * exception. There is no separate "destroy" call to forget.
  *
- * This layer knows about termios and file descriptors.
+ * Failures are reported by throwing std::system_error, which carries the
+ * original errno (via std::generic_category()) so no diagnostic detail
+ * is lost compared to the C version's return-code + errno convention.
+ *
+ * This class knows about termios and file descriptors.
  * It knows NOTHING about TLV, messages, or commands.
- * Nothing above this file should ever include <termios.h>.
  */
-#ifndef SERIAL_H
-#define SERIAL_H
+#ifndef SERIAL_HPP
+#define SERIAL_HPP
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <termios.h>
 
 /*
  * Fixed at 115200 for this project. The Nucleo's ST-LINK virtual COM port
@@ -23,59 +27,101 @@
  */
 #define SERIAL_BAUD B115200
 
-/* Opaque type. Only serial.c knows what is inside this struct. */
-typedef struct serial serial_t;
+class SerialPort
+{
+public:
+    /*
+     * Opens and configures the port at 115200 8N1 immediately.
+     * This is the C version's serial_create() - C++ constructors cannot
+     * be given a custom name, so the class name serves that role.
+     * Throws std::system_error on failure - if this constructor returns
+     * normally, the port is open and ready to use.
+     */
+    explicit SerialPort(std::string path);
 
-/*
- * Create and open a serial port at 115200 8N1.
- *
- * Returns a heap-allocated handle on success, or NULL on failure with
- * errno set. The caller owns the returned pointer and must eventually
- * pass it to serial_destroy().
- */
-serial_t *serial_create(const char *path);
+    /*
+     * The C version's serial_destroy(). Restores the original port
+     * settings and closes. Never throws. Runs automatically when the
+     * object goes out of scope - there is no call to forget.
+     */
+    ~SerialPort();
 
-/*
- * Close the port, free the handle. Safe to call with NULL (does nothing).
- * After this call, the pointer is no longer valid - do not use it again.
- */
-void serial_destroy(serial_t *s);
+    /*
+     * A SerialPort owns one OS file descriptor. Copying it would let two
+     * objects both believe they own (and could both close) the same fd,
+     * so copying is disabled. Not move-enabled either, for now - this
+     * project never needs to relocate a live port, only reconnect it.
+     */
+    SerialPort(const SerialPort &) = delete;
+    SerialPort &operator=(const SerialPort &) = delete;
+    SerialPort(SerialPort &&) = delete;
+    SerialPort &operator=(SerialPort &&) = delete;
 
-/*
- * Close the underlying fd (if open) and open it again, using the same
- * path the handle was created with. The serial_t * itself is unchanged -
- * any code already holding this pointer keeps working with no changes.
- *
- * Use this when the fd has gone bad: the board was unplugged, or
- * temporarily taken over for flashing, and /dev/ttyACM0 came back.
- *
- * Returns 0 on success, -1 on failure with errno set.
- */
-int serial_reconnect(serial_t *s);
+    /*
+     * Close the underlying fd (if open) and open it again, using the
+     * same path this object was constructed with. The object itself is
+     * unchanged - anything holding a reference or pointer to it keeps
+     * working with no changes once this succeeds.
+     *
+     * Use this when the fd has gone bad: the board was unplugged, or
+     * temporarily taken over for flashing, and the device path came back.
+     *
+     * Throws std::system_error on failure. After a failed call, fd()
+     * returns -1, so callers can retry reconnect() again later.
+     */
+    void reconnect();
 
-/* The raw fd, so callers can use poll()/select() on it. -1 if closed. */
-int serial_fd(const serial_t *s);
+    /* The raw fd, so callers can use poll()/select() on it. -1 if closed. */
+    int fd() const noexcept;
 
-/*
- * Read whatever has arrived, up to len bytes.
- *   > 0  number of bytes read
- *   = 0  nothing arrived before the read timeout (NOT end of file)
- *   < 0  error, errno set
- */
-long serial_read(serial_t *s, uint8_t *buf, size_t len);
+    /*
+     * Read whatever has arrived, up to len bytes.
+     *   > 0  number of bytes read
+     *   = 0  nothing arrived before the read timeout (NOT end of file)
+     * Throws std::system_error on a real error.
+     */
+    long read(uint8_t *buf, size_t len);
 
-/*
- * Write all len bytes. Loops internally, because write() is allowed
- * to accept fewer bytes than you gave it.
- *   = len  success
- *   < 0    error, errno set
- */
-long serial_write(serial_t *s, const uint8_t *buf, size_t len);
+    /*
+     * Write all len bytes. Loops internally, because write() is allowed
+     * to accept fewer bytes than you gave it. Throws on error.
+     */
+    long write(const uint8_t *buf, size_t len);
 
-/* Throw away anything sitting in the kernel's input and output queues. */
-int serial_flush(serial_t *s);
+    /* Throw away anything sitting in the kernel's input/output queues. */
+    void flush();
 
-/* Block until every byte handed to write() has actually left the port. */
-int serial_drain(serial_t *s);
+    /* Block until every byte handed to write() has actually left the port. */
+    void drain();
 
-#endif /* SERIAL_H */
+private:
+    int fd_ = -1;
+    struct termios saved_{};
+    std::string path_;
+
+    /* Open the device file, no termios configuration applied yet. */
+    int open_fd() const;
+
+    /*
+     * Apply raw-mode 115200 8N1 settings to fd. Stores the port's
+     * pre-existing settings into saved_ (used later to restore on close),
+     * and writes what was actually applied into applied_out, so the
+     * caller can verify it took effect.
+     */
+    void configure_port(int fd, struct termios &applied_out);
+
+    /*
+     * tcsetattr() reports success if it applied ANY of the requested
+     * changes, not all of them. Reads settings back and compares against
+     * what configure_port() asked for.
+     */
+    void verify_port(int fd, const struct termios &applied) const;
+
+    /* Runs open_fd -> configure_port -> verify_port, sets fd_ on success. */
+    void do_open();
+
+    /* Restores saved_ settings (if fd_ is open) and closes. Never throws. */
+    void close_fd() noexcept;
+};
+
+#endif /* SERIAL_HPP */
