@@ -163,7 +163,9 @@ extern "C"
      * Check value for the ASCII string "123456789" is 0x29B1.
      * --------------------------------------------------------------- */
 
+    /* Fold one byte into a running CRC; carry the return value into the next call. */
     uint16_t tlv_crc16_update(uint16_t crc, uint8_t byte);
+    /* CRC over a whole buffer at once (loops tlv_crc16_update() internally). */
     uint16_t tlv_crc16(const uint8_t *data, size_t len);
 
     /* ---------------------------------------------------------------
@@ -245,6 +247,7 @@ extern "C"
         uint32_t bytes_dropped;
     } tlv_receiver_t;
 
+    /* Reset a receiver to a blank state, ready to hunt for a new frame. */
     void tlv_receiver_init(tlv_receiver_t *recv);
 
     /*
@@ -259,6 +262,7 @@ extern "C"
      * Returns how many good frames were delivered. */
     typedef void (*tlv_frame_cb)(const tlv_frame_t *frame, void *ctx);
 
+    /* Feed a whole buffer; calls cb() once per good frame found. Returns how many. */
     size_t tlv_receiver_feed(tlv_receiver_t *recv,
                        const uint8_t *data,
                        size_t len,
@@ -288,12 +292,19 @@ extern "C"
         int ok;       /* 1 while every write has fit  */
     } tlv_writer_t;
 
+    /* Point a writer at an output buffer and its capacity; resets the write cursor. */
     void tlv_writer_init(tlv_writer_t *writer, uint8_t *buf, uint16_t cap);
+    /* Append one byte. */
     void tlv_writer_put_u8(tlv_writer_t *writer, uint8_t value);
+    /* Append a 16-bit value, most significant byte first. */
     void tlv_writer_put_u16(tlv_writer_t *writer, uint16_t value);
+    /* Append a 32-bit value, most significant byte first. */
     void tlv_writer_put_u32(tlv_writer_t *writer, uint32_t value);
+    /* Signed tlv_writer_put_u16(). */
     void tlv_writer_put_i16(tlv_writer_t *writer, int16_t value);
+    /* Signed tlv_writer_put_u32(). */
     void tlv_writer_put_i32(tlv_writer_t *writer, int32_t value);
+    /* Append a raw byte array as-is. */
     void tlv_writer_put_bytes(tlv_writer_t *writer, const uint8_t *src, uint16_t n);
     int tlv_writer_ok(const tlv_writer_t *writer); /* 1 = every write fitted */
 
@@ -307,12 +318,19 @@ extern "C"
         int ok;             /* 1 while no read has run past the end */
     } tlv_reader_t;
 
+    /* Point a reader at a received payload buffer; resets the read cursor. */
     void tlv_reader_init(tlv_reader_t *reader, const uint8_t *buf, uint16_t len);
+    /* Read one byte. */
     uint8_t tlv_reader_get_u8(tlv_reader_t *reader);
+    /* Read a 16-bit value, most significant byte first. */
     uint16_t tlv_reader_get_u16(tlv_reader_t *reader);
+    /* Read a 32-bit value, most significant byte first. */
     uint32_t tlv_reader_get_u32(tlv_reader_t *reader);
+    /* Signed tlv_reader_get_u16(). */
     int16_t tlv_reader_get_i16(tlv_reader_t *reader);
+    /* Signed tlv_reader_get_u32(). */
     int32_t tlv_reader_get_i32(tlv_reader_t *reader);
+    /* Read n raw bytes into dst. */
     void tlv_reader_get_bytes(tlv_reader_t *reader, uint8_t *dst, uint16_t n);
     int tlv_reader_ok(const tlv_reader_t *reader);   /* 1 = no overrun    */
     int tlv_reader_done(const tlv_reader_t *reader); /* 1 = ok and empty  */
