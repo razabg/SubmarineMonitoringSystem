@@ -22,7 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "tlv.h"
+#include "communication.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,7 +52,7 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-
+Communication *g_comm;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -100,7 +101,9 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+  HAL_Delay(5000);
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -127,6 +130,16 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
+  g_comm = communication_create();
+  if (g_comm == NULL) {
+      Error_Handler();
+  }
+
+  {
+      uint8_t dummy_payload[1] = { 0 };
+      (void)comm_send(g_comm, TLV_TAG_KEEP_ALIVE, dummy_payload, sizeof(dummy_payload));
+  }
+
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
 
