@@ -319,6 +319,13 @@ change an existing one without asking.
 - Database used by the Central Computer.
 - File name format for the daily log files and the events file.
 - Whether the alarm restarts if a new event arrives after the button stopped it.
+- Object Detection hardware: a VS1838B IR remote-control receiver used as a demo
+  stand-in (point a remote at it and press buttons to simulate an object present) —
+  see section 9 step 4's "Object Detection sensor" bullet for the full design.
+- RTC authority: internal STM32 RTC is the working clock for every runtime
+  timestamp; external DS1307 (I2C, `PC0`/`PC1`) is the durable source of truth,
+  synced to the internal RTC at boot and on `SET_TIME` — see section 9 step 4's
+  "RTC" bullet for the full design and why (no backup battery on `VBAT`).
 
 If a decision is found in the code, add it to this list as a short line so the next
 session does not have to go looking for it.
@@ -438,36 +445,133 @@ mapping:
 - **Already fixed** — USART2 (`huart2`) at 115200 8N1 for Communication
   (configured in `main.c`); IWDG for Watchdog (dedicated peripheral, its own
   clock, doesn't compete for a general-purpose timer).
-- **Periodic tasks needing a time base** — Monitor (5 s), Keep-Alive (6 s),
-  Watchdog refresh (must be faster than the IWDG timeout). Under FreeRTOS
-  these are most naturally `vTaskDelayUntil`/software timers on the RTOS tick
-  rather than dedicated hardware timers each — decide whether any of them
-  genuinely need a hardware TIMx (e.g. for jitter-free sampling) or whether
-  the RTOS tick is enough; don't reach for a timer peripheral by default.
-- **ADC** — light (LDR) and battery voltage (potentiometer) both need an ADC
-  channel; decide single ADC with two channels (scanned or timer-triggered)
-  vs. two separate reads, and whether conversions are triggered by a timer or
-  read on demand from Monitor's task.
-- **DHT11** (temperature + humidity) — bit-banged single-wire protocol with
-  tight microsecond timing; decide which GPIO and whether it's driven from a
-  timer-gated bit-bang routine or a dedicated peripheral trick. This is the
-  one sensor that can't just be "read from a task with no care for timing."
-- **Object Detection sensor** — depends on which of ultrasonic/IR is
-  actually wired (section 5 says "confirm against the actual board"); an
-  ultrasonic echo is naturally a timer input-capture, an IR/PIR digital
-  output is naturally an EXTI. Pick based on what's actually on the 9-in-1
-  board.
-- **Button (stop-alarm)** — EXTI line, debounced (section 5). Debounce is
-  either a short software timer started from the EXTI ISR, or a periodic
-  poll from the owning task — decide one approach and reuse it if any other
-  button/input needs debouncing.
-- **RTC** — timestamps for Log/Event; external RTC on the Data Logging
-  Shield (I2C or SPI, confirm which) vs. the STM32's internal RTC — decide
-  which one is authoritative once Init's time-sync design is worked out, so
-  there's exactly one source of truth for "now."
-- **Buzzer / RGB LED** — plain GPIO toggles are enough per the spec (on/off
-  per mode, no mention of intensity or tone control); don't reach for PWM
-  timers here unless a real requirement shows up for it.
+- **Periodic tasks needing a time base — decided: `osDelayUntil`, no
+  hardware timer.** Monitor (5 s), Keep-Alive (6 s), Watchdog refresh
+  (must be faster than the IWDG timeout) all use CMSIS-RTOS v2's
+  `osDelayUntil` (the wrapper this project's Communication code already
+  standardizes on, over raw FreeRTOS `vTaskDelayUntil`) inside each
+  task's own loop — not a dedicated hardware `TIMx`. Reasoning: it's
+  drift-free (computes the next wake point from the last *intended* one,
+  so per-round jitter in the work itself never accumulates), costs zero
+  peripherals (`TIM2`/`TIM3` are already spoken for elsewhere), and none
+  of these three genuinely need sub-millisecond jitter-free precision —
+  that's the only case that would justify a real hardware timer instead.
+  Shape: `tick = osKernelGetTickCount(); for(;;) { ...work...; tick +=
+  5000; osDelayUntil(tick); }` (5000 ticks == 5 s at this project's 1 ms
+  tick rate).
+- **ADC — decided: on-demand from Monitor's task, two sequential
+  single-channel reads, no scan mode/DMA/timer trigger.** Light (`PA1`,
+  LDR) and battery voltage (`PA0`, potentiometer) both live on `ADC1`.
+  Only read twice every 5 s (Monitor's own round), so there's no real
+  throughput/continuous-sampling need that scan-mode or DMA would
+  actually earn its complexity for. Monitor's task just does, in order:
+  select the battery channel → `HAL_ADC_Start()` →
+  `HAL_ADC_PollForConversion()` → `HAL_ADC_GetValue()`, then reconfigure
+  to the light channel and repeat. Nothing touches the ADC between
+  Monitor's rounds.
+- **DHT11 — decided: `PB5` (`DHT_Pin`), `TIM2` as a free-running
+  microsecond counter.** Bit-banged single-wire protocol:
+  `PB5` runs as plain push-pull output to drive the line, briefly
+  reconfigured to input to read the sensor's response bits back. Timing
+  comes from `TIM2` (32-bit — avoids the wraparound headaches a 16-bit
+  timer would have for a free-running µs counter), `Prescaler = 79` for
+  the same 1 MHz/1 µs-per-tick math as the buzzer's `TIM3`, left running
+  continuously with no interrupt — the bit-bang routine just polls
+  `TIM2->CNT` directly to measure each pulse width. No ADC involvement
+  (DHT11 is fully digital); no conflict with `TIM3` (buzzer PWM), which
+  stays dedicated to that.
+- **Object Detection sensor — decided.** The 9-in-1 board's IR module is a
+  VS1838B, a 38 kHz demodulating IR *remote-control receiver*, not a
+  reflective proximity/obstacle sensor — it has no emitter and only reacts
+  to an actively-transmitting IR remote pointed at it, not to a passive
+  nearby object. Used as a **stand-in "object present" trigger for demo
+  purposes**: point any IR remote at it and press buttons to simulate an
+  object being in range.
+  - Wiring: `D6` → `PB10` (`IR_Sensor_Pin`, already in `main.h`/`.ioc`
+    under that label).
+  - Mode: EXTI, both edges (`GPIO_MODE_IT_RISING_FALLING`) — a single
+    button press produces a burst of many edges, not one clean transition;
+    the ISR does the minimum (per the ISR rule) and just restarts a
+    one-shot software timer (`osTimerStart`, restarts the countdown if
+    already running) on every edge.
+  - Semantics: **presence-by-recency, not by level.** While the timer
+    hasn't expired, "object" is considered present. If the timer is ever
+    allowed to expire (no edge refreshed it in time), that fires "object
+    no longer found." An edge arriving while state was "not found" fires
+    "object detected" — these are edge-triggered *transitions* into
+    Event (matching section 2.2), not one message per button press/edge.
+  - Timeout length: not finalized yet — ~10 s was discussed as a rough
+    starting point, needs actual tuning once built.
+  - Reuses the same "software timer restarted from an EXTI ISR" debounce
+    technique the stop-alarm button (`B1_Pin`) also needs — see the
+    Button bullet below; both should share one approach.
+- **Button (stop-alarm) — decided: `BUTTON_D2`, moved to `PB3`** (not the
+  shield's default `PA10` — see below), the 9-in-1 shield's pushbutton,
+  not the Nucleo's onboard `B1` (`PC13` — `B1` is CubeMX's out-of-the-box
+  default EXTI setup from project creation, not an intentional choice;
+  treat it as unused unless repurposed later).
+  - **Why `PB3`, not `PA10`:** `PA10` is the same pin *number* (10) as
+    `IR_Sensor` on `PB10`. STM32's EXTI interrupt lines are numbered 0-15
+    and shared across all ports at that pin number — only one port's
+    `Px10` can actually feed "EXTI Line 10" at a time (`SYSCFG_EXTICR`
+    picks which), so `PA10` and `PB10` can never both be true hardware
+    interrupts simultaneously. `PB3` is a genuinely free pin number, no
+    conflict with anything else allocated so far.
+  - `PB3` was previously locked to `SYS_JTDO-SWO` (CubeMX's default debug
+    trace pin, `Locked=true` in the `.ioc`) — freed by changing CubeMX's
+    `System Core → SYS → Debug` setting from the 3-pin trace mode down to
+    plain "Serial Wire" (2-pin: `SWDIO`/`SWCLK` only). SWO isn't needed
+    for this project, so nothing is given up by freeing it.
+  - Still needs the same CubeMX change the IR sensor needed: currently
+    plain `GPIO_MODE_INPUT` (unmonitored), has to become an EXTI mode to
+    be event-driven.
+  - Trigger edge/pull not confirmed yet: `B1`'s `NOPULL` + `IT_FALLING`
+    combination relies on a pull-up resistor built into the Nucleo board
+    itself for that specific pin, which the shield's separate button
+    module may or may not replicate — confirm this module's own wiring
+    before picking `IT_FALLING` vs `IT_RISING`, same "verify, don't
+    assume" situation as the IR sensor's polarity.
+  - Debounce: either a short software timer started from the EXTI ISR, or
+    a periodic poll from the owning task — the IR sensor's
+    presence-timeout timer (see above) is the same general technique,
+    reuse whichever approach gets picked.
+- **RTC — decided: dual-source, internal RTC is the working clock.**
+  Hardware is the STM32L476's internal RTC peripheral plus an external
+  DS1307 on the Data Logging Shield (I2C — the `I2C3_SCL`/`I2C3_SDA` pins
+  on `PC0`/`PC1`), which has its own coin-cell backup on the shield. Both
+  exist because Nucleo boards ship with `VBAT` tied to `VDD` via solder
+  bridge `SB45` and no separate backup battery — the internal RTC forgets
+  everything on every power cycle, so it can't be the durable source of
+  truth on its own; the DS1307's own battery is what actually survives a
+  power loss.
+  - **Internal RTC is authoritative for every runtime timestamp** —
+    Monitor, Event, and Log all read it directly (a plain register read,
+    no I2C transaction, no dependency on the bus being healthy, no added
+    latency per timestamp).
+  - **External DS1307 is the durable source of truth**, touched only at
+    specific moments, not on every timestamp:
+    - At boot, Init reads the DS1307 once and sets the internal RTC from it.
+    - On a `SET_TIME` command from the Central Computer, the new time gets
+      written to *both* — internal immediately (so timestamps are correct
+      right away) and external too (so the correction survives a power
+      drop instead of reverting to the stale value on the next boot).
+    - Optionally, a periodic resync (e.g. daily) re-reads the DS1307 to
+      correct the internal RTC for crystal drift accumulated since boot.
+- **Buzzer — decided: PWM, not a plain toggle.** For a real tone rather
+  than a flat click. `TIM3_CH1` on `PB4` (a small general-purpose timer —
+  `PB4` is the chip's default `NJTRST` pin, free for this because the
+  board's debug config is SWD, not JTAG — same reason `PB3` ended up free
+  too, see the Button bullet above; this project doesn't use SWO).
+  Configured `Prescaler=79`, `Period=999`, `Pulse=9` — with the
+  80 MHz APB1 timer clock this project runs at, that's a 1 MHz counter
+  (80 MHz / 80), a 1 kHz PWM frequency (1 MHz / 1000 counts), and a
+  0.9% duty cycle (9 / 1000). Adjust `Pulse` to change duty/volume,
+  `Period`+`Prescaler` together to change the tone's pitch.
+- **RGB LED — decided: plain GPIO, on `PB13` (red) / `PB14` (blue) /
+  `PB15` (green).** The spec only needs discrete colors via on/off R/G/B
+  combinations, no brightness or color-mixing control — so no PWM needed
+  here, unlike the buzzer. Don't reach for PWM on this one unless dimming
+  becomes an actual requirement.
 - **SD card (FatFS)** — SPI peripheral + chip-select GPIO; note which SPI
   instance so it doesn't collide with anything else on the same pins.
 
@@ -478,8 +582,10 @@ have to reverse-engineer it from `main.c`.
 In this order — each one is small and independently testable once
 Communication exists to observe it through:
 
-1. **Init** — time sync request over Communication, then starts everything
-   else. Simplest module; nothing depends on sensor data.
+1. **Init** — reads the external DS1307 once to set the internal RTC (see
+   the RTC bullet above), then does the time sync request over
+   Communication, then starts everything else. Simplest module; nothing
+   depends on sensor data.
 2. **Watchdog** — refresh on schedule; Init needs to be able to report a WD
    reset (section 2.9), so build this early enough to test that report path.
 3. **Keep-Alive** — 6 s timer sending timestamp + latest measurement + mode

@@ -20,6 +20,7 @@
 #include <string>
 #include <termios.h>
 
+
 /*
  * Fixed at 115200 for this project. The Nucleo's ST-LINK virtual COM port
  * and the CC's serial transport must agree on this; both sides hardcode it

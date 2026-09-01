@@ -275,7 +275,7 @@ size_t tlv_receiver_feed(tlv_receiver_t      *recv,
                    const uint8_t *data,
                    size_t         len,
                    tlv_frame_cb   cb,
-                   void          *ctx)
+                   void          *ctx) //ctx = context
 {
     size_t      i;
     size_t      delivered = 0u;
@@ -286,7 +286,7 @@ size_t tlv_receiver_feed(tlv_receiver_t      *recv,
     }
 
     for (i = 0; i < len; i++) {
-        if (tlv_receiver_feed_byte(recv, data[i], &frame) == TLV_OK) {
+        if (tlv_receiver_feed_byte(recv, data[i], &frame) == TLV_OK) { // we got a full frame
             delivered++;
             if (cb != NULL) {
                 cb(&frame, ctx);
