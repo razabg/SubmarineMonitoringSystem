@@ -182,19 +182,9 @@ void SysTick_Handler(void)
 /* please refer to the startup file (startup_stm32l4xx.s).                    */
 /******************************************************************************/
 
-/**
-  * @brief This function handles USART2 global interrupt.
-  */
-void USART2_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART2_IRQn 0 */
-
-  /* USER CODE END USART2_IRQn 0 */
-  HAL_UART_IRQHandler(&huart2);
-  /* USER CODE BEGIN USART2_IRQn 1 */
-
-  /* USER CODE END USART2_IRQn 1 */
-}
+/* USART2_IRQHandler moved to communication.c -- Communication owns
+ * huart2, so its interrupt vector lives there instead of here now.
+ * EXTI3_IRQHandler (BUTTON_D3) has moved to event.c for the same reason. */
 
 /* USER CODE BEGIN 1 */
 
