@@ -1,4 +1,4 @@
-#include "dht2.h"
+#include "DHT11.h"
 #include <stdlib.h>
 
 // ── Private struct definition (hidden from client) ────
