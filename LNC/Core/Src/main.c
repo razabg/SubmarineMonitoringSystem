@@ -25,6 +25,7 @@
 #include "tlv.h"
 #include "communication.h"
 #include "monitor.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -669,9 +670,34 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* TEMPORARY smoke-test only -- huart2 is Communication's per CLAUDE.md
+ * ("no other module touches HAL UART calls or huart2 directly"). Borrowed
+ * here, with nothing else on the wire right now, just to see raw sensor
+ * values while testing Monitor on hardware. Flip to 0 (or delete this
+ * block and the __io_putchar() body in syscalls.c) before Communication's
+ * real send path is exercised again. */
+#define DEBUG_UART_PRINTF 1
+
+static const char *mode_name(monitor_mode_t mode)
+{
+    switch (mode) {
+    case MODE_NORMAL:  return "NORMAL";
+    case MODE_WARNING: return "WARNING";
+    case MODE_ERROR:   return "ERROR";
+    default:           return "?";
+    }
+}
+
 void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
 {
+#if DEBUG_UART_PRINTF
+    printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
+           data->temp_c, data->humidity_pct, data->light_pct,
+           data->battery_pct, mode_name(mode));
+#else
     (void)data;
+#endif
 
     /* Brief off-pulse so each 5 s round is visibly distinct, even when
      * the mode (and thus color) doesn't change round to round. */

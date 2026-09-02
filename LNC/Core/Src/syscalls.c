@@ -29,6 +29,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <sys/times.h>
+#include "main.h" /* TEMPORARY smoke-test only -- see __io_putchar() below */
 
 
 /* Variables */
@@ -75,6 +76,17 @@ __attribute__((weak)) int _read(int file, char *ptr, int len)
   }
 
   return len;
+}
+
+/* TEMPORARY smoke-test only -- huart2 is Communication's per CLAUDE.md
+ * ("no other module touches HAL UART calls or huart2 directly"). Remove
+ * this definition (printf() then goes nowhere again) before Communication's
+ * real send path is exercised. */
+int __io_putchar(int ch)
+{
+  uint8_t c = (uint8_t)ch;
+  HAL_UART_Transmit(&huart2, &c, 1, HAL_MAX_DELAY);
+  return ch;
 }
 
 __attribute__((weak)) int _write(int file, char *ptr, int len)

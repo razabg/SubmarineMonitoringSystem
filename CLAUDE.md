@@ -459,16 +459,18 @@ mapping:
   Shape: `tick = osKernelGetTickCount(); for(;;) { ...work...; tick +=
   5000; osDelayUntil(tick); }` (5000 ticks == 5 s at this project's 1 ms
   tick rate).
-- **ADC — decided: on-demand from Monitor's task, two sequential
-  single-channel reads, no scan mode/DMA/timer trigger.** Light (`PA1`,
-  LDR) and battery voltage (`PA0`, potentiometer) both live on `ADC1`.
-  Only read twice every 5 s (Monitor's own round), so there's no real
+- **ADC — decided: on-demand from Monitor's task, one dedicated ADC
+  peripheral per sensor, no scan mode/DMA/timer trigger.** Battery voltage
+  (`PA0`, potentiometer) reads through `ADC1` (12-bit); light (`PA1`, LDR)
+  reads through `ADC2` (8-bit — resolution lowered in the `.ioc` to match).
+  Superseded from an earlier plan to share both channels on `ADC1` with
+  sequential reads — implemented and kept as two separate ADCs instead.
+  Only read once every 5 s each (Monitor's own round), so there's no real
   throughput/continuous-sampling need that scan-mode or DMA would
-  actually earn its complexity for. Monitor's task just does, in order:
-  select the battery channel → `HAL_ADC_Start()` →
-  `HAL_ADC_PollForConversion()` → `HAL_ADC_GetValue()`, then reconfigure
-  to the light channel and repeat. Nothing touches the ADC between
-  Monitor's rounds.
+  actually earn its complexity for. Monitor's task just does, per
+  peripheral: `HAL_ADC_Start()` → `HAL_ADC_PollForConversion()` →
+  `HAL_ADC_GetValue()` → `HAL_ADC_Stop()`. Nothing touches either ADC
+  between Monitor's rounds.
 - **DHT11 — decided: `PB5` (`DHT_Pin`), `TIM2` as a free-running
   microsecond counter.** Bit-banged single-wire protocol:
   `PB5` runs as plain push-pull output to drive the line, briefly

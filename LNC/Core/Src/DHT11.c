@@ -73,25 +73,46 @@ static DHT_Result wait_for_response(DHT_Handle *h)
     return DHT_OK;
 }
 
-static uint8_t read_bit(DHT_Handle *h)
+/* Bit timeout: a bit's low+high phases are each well under 100us on a
+ * healthy line (see wait_for_response()'s identical bound); this guards
+ * against a missed/glitched edge spinning the caller forever instead of
+ * reporting DHT_NO_RESPONSE. */
+#define DHT_BIT_TIMEOUT_US 100
+
+static int read_bit(DHT_Handle *h)
 {
-    while (HAL_GPIO_ReadPin(h->port, h->pin) == GPIO_PIN_RESET);
     __HAL_TIM_SET_COUNTER(h->timer, 0);
-    while (HAL_GPIO_ReadPin(h->port, h->pin) == GPIO_PIN_SET);
+    while (HAL_GPIO_ReadPin(h->port, h->pin) == GPIO_PIN_RESET)
+    {
+        if (__HAL_TIM_GET_COUNTER(h->timer) > DHT_BIT_TIMEOUT_US)
+            return -1;
+    }
+
+    __HAL_TIM_SET_COUNTER(h->timer, 0);
+    while (HAL_GPIO_ReadPin(h->port, h->pin) == GPIO_PIN_SET)
+    {
+        if (__HAL_TIM_GET_COUNTER(h->timer) > DHT_BIT_TIMEOUT_US)
+            return -1;
+    }
+
     return (__HAL_TIM_GET_COUNTER(h->timer) > 50) ? 1 : 0;
 }
 
-static void read_40_bits(DHT_Handle *h, uint8_t *bytes)
+static DHT_Result read_40_bits(DHT_Handle *h, uint8_t *bytes)
 {
     for (int i = 0; i < 5; i++)
         bytes[i] = 0;
 
     for (int i = 0; i < 40; i++)
     {
-        uint8_t bit = read_bit(h);
+        int bit = read_bit(h);
+        if (bit < 0)
+            return DHT_NO_RESPONSE;
+
         int byte_index = i / 8;
-        bytes[byte_index] = (bytes[byte_index] << 1) | bit;
+        bytes[byte_index] = (uint8_t)((bytes[byte_index] << 1) | (uint8_t)bit);
     }
+    return DHT_OK;
 }
 
 // ── Public functions ──────────────────────────────────
@@ -120,7 +141,8 @@ DHT_Result DHT_Read(DHT_Handle *h, DHT_Data *out)
     if (wait_for_response(h) != DHT_OK)
         return DHT_NO_RESPONSE;
 
-    read_40_bits(h, bytes);
+    if (read_40_bits(h, bytes) != DHT_OK)
+        return DHT_NO_RESPONSE;
 
     uint8_t sum = bytes[0] + bytes[1] + bytes[2] + bytes[3];
     if (sum != bytes[4])
