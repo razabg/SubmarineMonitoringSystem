@@ -24,6 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include "tlv.h"
 #include "communication.h"
+#include "monitor.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -127,7 +129,7 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -163,6 +165,13 @@ int main(void)
 //      uint8_t dummy_payload[1] = { 0 };
 //      (void)comm_send(g_comm, TLV_TAG_KEEP_ALIVE, dummy_payload, sizeof(dummy_payload));
 //  }
+
+  {
+      Monitor *monitor = monitor_create();
+      if (monitor == NULL) {
+          Error_Handler();
+      }
+  }
 
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -353,7 +362,7 @@ static void MX_ADC2_Init(void)
   */
   hadc2.Instance = ADC2;
   hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc2.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc2.Init.Resolution = ADC_RESOLUTION_8B;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -496,7 +505,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 79;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -662,6 +671,54 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+/* TEMPORARY smoke-test only -- huart2 is Communication's per CLAUDE.md
+ * ("no other module touches HAL UART calls or huart2 directly"). Borrowed
+ * here, with nothing else on the wire right now, just to see raw sensor
+ * values while testing Monitor on hardware. Flip to 0 (or delete this
+ * block and the __io_putchar() body in syscalls.c) before Communication's
+ * real send path is exercised again. */
+#define DEBUG_UART_PRINTF 1
+
+static const char *mode_name(monitor_mode_t mode)
+{
+    switch (mode) {
+    case MODE_NORMAL:  return "NORMAL";
+    case MODE_WARNING: return "WARNING";
+    case MODE_ERROR:   return "ERROR";
+    default:           return "?";
+    }
+}
+
+void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
+{
+#if DEBUG_UART_PRINTF
+    printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
+           data->temp_c, data->humidity_pct, data->light_pct,
+           data->battery_pct, mode_name(mode));
+#else
+    (void)data;
+#endif
+
+    /* Brief off-pulse so each 5 s round is visibly distinct, even when
+     * the mode (and thus color) doesn't change round to round. */
+    HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(RGB_BLUE_GPIO_Port, RGB_BLUE_Pin, GPIO_PIN_RESET);
+    osDelay(150);
+
+    switch (mode) {
+    case MODE_NORMAL:
+        HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_SET);
+        break;
+    case MODE_WARNING:
+        HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_SET); /* yellow = red+green */
+        break;
+    case MODE_ERROR:
+        HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_SET);
+        break;
+    }
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */

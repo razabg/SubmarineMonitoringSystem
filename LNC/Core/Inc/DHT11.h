@@ -1,5 +1,5 @@
-#ifndef DHT2_H
-#define DHT2_H
+#ifndef DHT11_H
+#define DHT11_H
 
 #include "main.h"
 #include <stdint.h>
