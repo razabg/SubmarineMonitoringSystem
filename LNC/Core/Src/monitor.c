@@ -249,3 +249,17 @@ static void monitor_task(void *argument)
         osDelayUntil(tick);
     }
 }
+
+/* Kept for reference -- this was main.c's TEMPORARY debug log_write(),
+ * removed once the real Log module took over the strong definition
+ * (having both would be a duplicate-symbol link error, same class as
+ * the EXTI3/USART2 IRQHandler collisions). Useful again only if Log
+ * needs a UART-visible fallback for on-hardware debugging.
+ *
+ * void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
+ * {
+ *     printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
+ *            data->temp_c, data->humidity_pct, data->light_pct,
+ *            data->battery_pct, monitor_mode_name(mode));
+ * }
+ */

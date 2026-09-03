@@ -27,6 +27,7 @@
 #include "communication.h"
 #include "monitor.h"
 #include "event.h"
+#include "log.h"
 #include "sdfatfs.h"
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -139,14 +140,8 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
 
-  /* TEMPORARY smoke test -- confirms the SD-over-SPI/FatFS wiring
-   * (user_diskio_spi.c + sdfatfs.c) actually works on this hardware
-   * before anything (Event, Log) depends on it. Remove once that's
-   * confirmed. Output goes over the same temporary debug-UART channel
-   * everything else's smoke test uses. */
-  SDFatFS_SaveString("SDTEST.TXT", "hello from LNC\r\n");
-  SDFatFS_ListFiles();
-  SDFatFS_PrintFile("SDTEST.TXT");
+
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -182,6 +177,13 @@ int main(void)
 //      uint8_t dummy_payload[1] = { 0 };
 //      (void)comm_send(g_comm, TLV_TAG_KEEP_ALIVE, dummy_payload, sizeof(dummy_payload));
 //  }
+
+  {
+      Log *log = log_create();
+      if (log == NULL) {
+          Error_Handler();
+      }
+  }
 
   {
       Monitor *monitor = monitor_create();
@@ -772,25 +774,6 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-/* TEMPORARY smoke-test only -- huart2 is Communication's per CLAUDE.md
- * ("no other module touches HAL UART calls or huart2 directly"). Borrowed
- * here, with nothing else on the wire right now, just to see raw sensor
- * values while testing Monitor on hardware. Flip to 0 (or delete this
- * block and the __io_putchar() body in syscalls.c) before Communication's
- * real send path is exercised again. */
-#define DEBUG_UART_PRINTF 1
-
-void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
-{
-#if DEBUG_UART_PRINTF
-    printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
-           data->temp_c, data->humidity_pct, data->light_pct,
-           data->battery_pct, monitor_mode_name(mode));
-#else
-    (void)data;
-    (void)mode;
-#endif
-}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */

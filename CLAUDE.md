@@ -317,7 +317,25 @@ change an existing one without asking.
 - Error range: the commands only set the Normal and Warning bounds, so Error is
   "everything else".
 - Database used by the Central Computer.
-- File name format for the daily log files and the events file.
+- File name format: events file is a single flat `EVENTS.TXT`, never rotated
+  (event.c). Daily log files — decided: `LOG1.TXT`..`LOG7.TXT`, one per
+  weekday, Sunday-first (`1`=Sun..`7`=Sat, remapped in log.c from HAL's
+  `RTC_WEEKDAY_MONDAY(1)..SUNDAY(7)` via `(WeekDay % 7) + 1`), constrained by
+  FatFS running in 8.3 short-filename mode (`_USE_LFN 0` in `ffconf.h`).
+  Reusing the same slot every 7 days gives "keep 7 days, delete the oldest on
+  day 8" for free: log.c deletes whatever's in today's slot on the first
+  write of each new day (harmless no-op via `FR_NO_FILE` for the first week,
+  a real deletion of last week's file from day 8 onward) — no file listing
+  or date parsing needed anywhere.
+- **Known open issue, not yet fixed:** pulling the SD card out and reinserting
+  it makes mounting keep failing afterward (observed on hardware while testing
+  Log). Likely cause, not yet confirmed: `user_diskio.c`'s
+  `static volatile DSTATUS Stat = STA_NOINIT;` caches "card is initialized"
+  across calls — a card swap doesn't reset it, so FatFS can skip real
+  re-initialization on the next mount and fail talking to the card. Needs a
+  real fix (probably detecting the swap and clearing `Stat`, or forcing
+  `disk_initialize()` again) before relying on hot-swapping the card during
+  testing or operation.
 - Whether the alarm restarts if a new event arrives after the button stopped it.
 - Object Detection hardware: a VS1838B IR remote-control receiver used as a demo
   stand-in (point a remote at it and press buttons to simulate an object present) —
