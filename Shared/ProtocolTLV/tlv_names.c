@@ -26,6 +26,8 @@ const char *tlv_tag_name(uint8_t tag)
         return "KEEP_ALIVE";
     case TLV_TAG_STARTUP:
         return "STARTUP";
+    case TLV_TAG_TIME_SYNC_REQUEST:
+        return "TIME_SYNC_REQUEST";
 
     case TLV_TAG_SET_TEMP_NORMAL:
         return "SET_TEMP_NORMAL";
@@ -47,6 +49,8 @@ const char *tlv_tag_name(uint8_t tag)
         return "SET_TIME";
     case TLV_TAG_GET_TIME:
         return "GET_TIME";
+    case TLV_TAG_TIME_SYNC_REPLY:
+        return "TIME_SYNC_REPLY";
 
     case TLV_TAG_QUERY_DATA:
         return "QUERY_DATA";

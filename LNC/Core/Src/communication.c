@@ -143,6 +143,7 @@ static comm_prio_t comm_priority_for_tag(uint8_t tag)
     case TLV_TAG_OBJECT_DETECTED:
     case TLV_TAG_OBJECT_CLEARED:
     case TLV_TAG_STARTUP:
+    case TLV_TAG_TIME_SYNC_REQUEST:
     case TLV_TAG_TIME_REPLY:
     case TLV_TAG_ACK:
     case TLV_TAG_NACK:
@@ -297,11 +298,16 @@ static void comm_route_frame(const tlv_frame_t *f)
     case TLV_TAG_SET_HUM_NORMAL:  case TLV_TAG_SET_HUM_WARNING:
     case TLV_TAG_SET_LIGHT_NORMAL: case TLV_TAG_SET_LIGHT_WARNING:
     case TLV_TAG_SET_BATT_NORMAL: case TLV_TAG_SET_BATT_WARNING:
-    case TLV_TAG_SET_TIME: case TLV_TAG_GET_TIME:
+    case TLV_TAG_SET_TIME:
         configuration_on_frame(f);
         break;
 
-    case TLV_TAG_TIME_REPLY:
+    /* GET_TIME: CC asking for the LNC's current time -- Init owns
+     * replying (it owns RTC concerns), not Configuration.
+     * TIME_SYNC_REPLY: the CC's answer to Init's own boot-time
+     * TIME_SYNC_REQUEST. Both are Init's. */
+    case TLV_TAG_GET_TIME:
+    case TLV_TAG_TIME_SYNC_REPLY:
         init_on_frame(f);
         break;
 

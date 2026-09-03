@@ -27,8 +27,10 @@
 #include "communication.h"
 #include "monitor.h"
 #include "event.h"
+#include "init.h"
 #include "log.h"
 #include "sdfatfs.h"
+#include "RTC_ds1307_I2C.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -140,6 +142,22 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
 
+  /* TEMPORARY, one-time only -- seeds the external DS1307 with the
+   * correct real-world time. The DS1307 has no other way to learn the
+   * true time (see CLAUDE.md's RTC section) -- flash once with this
+   * enabled and a correct current date/time filled in below, let it
+   * run once, then set SEED_DS1307_TIME back to 0. Left enabled, this
+   * re-stamps the DS1307 with this same stale value on every future
+   * boot, overwriting whatever correct time it built up since. */
+//#define SEED_DS1307_TIME 0 //was 1
+//#if SEED_DS1307_TIME
+//  {
+//      /* Thu 2026-09-03 23:14:00 -- Monday=1..Sunday=7 (dow=4=Thursday) */
+//      RTC_Time_t seed = { .sec = 0, .min = 16, .hour = 23, .dow = 4,
+//                           .date = 3, .month = 9, .year = 26 };
+//      (void)RTC_SetTime(&hi2c3, &seed);
+//  }
+//#endif
 
 
   /* USER CODE END 2 */
@@ -195,6 +213,13 @@ int main(void)
   {
       Event *event = event_create(g_comm);
       if (event == NULL) {
+          Error_Handler();
+      }
+  }
+
+  {
+      Init *init = init_create(g_comm);
+      if (init == NULL) {
           Error_Handler();
       }
   }
