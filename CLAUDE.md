@@ -344,6 +344,18 @@ change an existing one without asking.
   timestamp; external DS1307 (I2C, `PC0`/`PC1`) is the durable source of truth,
   synced to the internal RTC at boot and on `SET_TIME` — see section 9 step 4's
   "RTC" bullet for the full design and why (no backup battery on `VBAT`).
+- **DS1307 needs a one-time manual seed before first deployment.** Nothing on
+  the LNC has a genuine real-time source (no GPS/NTP/UI) — the only two ways
+  real time ever enters the system are the CC sync (`init.c`'s
+  `apply_cc_time()`, but that only works once a CC has answered at least
+  once) and typing the correct time in by hand, once, via the commented-out
+  `RTC_SetTime()` block at the bottom of `RTC_ds1307_I2C.c`. Because the
+  DS1307 has its own coin-cell battery, this only has to happen once ever —
+  it then keeps correct time through every future power cycle on its own,
+  refined by the CC sync going forward. **Footgun:** that seed block must be
+  disabled/removed again right after use — left enabled, it re-stamps the
+  DS1307 with the same stale hardcoded value on every single boot,
+  overwriting whatever correct time it had built up since.
 - "Suppress non-essential ops" (section 2.3's any→Error row): not implemented
   yet, plan only. `event_is_essential_only()` already tracks the flag correctly
   (event.c), but nothing reads it. Planned home: the LNC Communication module's

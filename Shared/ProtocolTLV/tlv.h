@@ -89,6 +89,11 @@ extern "C"
         TLV_TAG_OBJECT_CLEARED = 0x13,  /* sonar / IR: object gone           */
         TLV_TAG_KEEP_ALIVE = 0x14,      /* every 6 s, highest priority       */
         TLV_TAG_STARTUP = 0x15,         /* boot, says if it was a WD reset   */
+        TLV_TAG_TIME_SYNC_REQUEST = 0x16, /* Init, at boot: "please sync me"
+                                            * (section 2.7) -- distinct from
+                                            * GET_TIME below, which flows the
+                                            * other way. Answered by
+                                            * TLV_TAG_TIME_SYNC_REPLY.       */
 
         /* Central Computer -> LNC : the ten management commands */
         TLV_TAG_SET_TEMP_NORMAL = 0x20,   /* temperature range for Normal      */
@@ -100,14 +105,22 @@ extern "C"
         TLV_TAG_SET_BATT_NORMAL = 0x26,   /* battery lower bound, Normal       */
         TLV_TAG_SET_BATT_WARNING = 0x27,  /* battery lower bound, Warning      */
         TLV_TAG_SET_TIME = 0x28,          /* set the RTC                       */
-        TLV_TAG_GET_TIME = 0x29,          /* read the RTC                      */
+        TLV_TAG_GET_TIME = 0x29,          /* CC asks the LNC's current time,
+                                            * e.g. to check it's synced --
+                                            * answered by TLV_TAG_TIME_REPLY
+                                            * below. Not Init's own sync
+                                            * request -- see
+                                            * TLV_TAG_TIME_SYNC_REQUEST
+                                            * above for that.               */
+        TLV_TAG_TIME_SYNC_REPLY = 0x2A,   /* CC's answer to Init's
+                                            * TLV_TAG_TIME_SYNC_REQUEST      */
 
         /* Central Computer -> LNC : queries */
         TLV_TAG_QUERY_DATA = 0x30,   /* measurements in a time range      */
         TLV_TAG_QUERY_EVENTS = 0x31, /* events in a time range            */
 
         /* LNC -> Central Computer : replies */
-        TLV_TAG_TIME_REPLY = 0x40,   /* answer to GET_TIME                */
+        TLV_TAG_TIME_REPLY = 0x40,   /* LNC's answer to CC's GET_TIME     */
         TLV_TAG_QUERY_RECORD = 0x41, /* one record of a query answer      */
         TLV_TAG_QUERY_END = 0x42,    /* no more records                   */
         TLV_TAG_ACK = 0x43,          /* command accepted                  */
