@@ -102,6 +102,7 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 #define BUTTON_D3_Pin GPIO_PIN_3
 #define BUTTON_D3_GPIO_Port GPIOB
+#define BUTTON_D3_EXTI_IRQn EXTI3_IRQn
 #define BUZZER_Pin GPIO_PIN_4
 #define BUZZER_GPIO_Port GPIOB
 #define DHT_Pin GPIO_PIN_5

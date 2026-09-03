@@ -277,15 +277,10 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     (void)HAL_UART_Receive_IT(&huart2, &g_comm.rx_isr_byte, 1);
 }
 
-/* NVIC vector for USART2 -- moved here from stm32l4xx_it.c so the UART
- * interrupt lives alongside the rest of what Communication owns, instead
- * of split across a CubeMX-generated file. Just hands off to HAL's own
- * dispatcher, which in turn calls HAL_UART_RxCpltCallback()/
- * HAL_UART_ErrorCallback() above. */
-void USART2_IRQHandler(void)
-{
-    HAL_UART_IRQHandler(&huart2);
-}
+/* The NVIC vector (USART2_IRQHandler) is CubeMX-generated in
+ * stm32l4xx_it.c and regenerates on every code-gen pass regardless of
+ * what lives elsewhere; it just calls HAL_UART_IRQHandler(), which
+ * dispatches to the callbacks above. Only the callbacks belong here. */
 
 /* Empty placeholders so the firmware links before Configuration/Init/
  * Log exist. Each real module later defines the same-named non-weak

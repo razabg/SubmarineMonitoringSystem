@@ -12,12 +12,14 @@
 #include "main.h"
 #include "tlv.h"
 #include "sdfatfs.h"
+#include "buzzer.h"
 #include <stdio.h>
 
 #define EVENTS_FILENAME "EVENTS.TXT"
 
 struct Event {
     Communication *comm;
+    Buzzer_Handle *buzzer;
     bool alarm_active;
     bool essential_only;
 };
@@ -31,6 +33,10 @@ static struct Event g_event;
 Event *event_create(Communication *comm)
 {
     g_event.comm = comm;
+    g_event.buzzer = Buzzer_Create(&htim3, TIM_CHANNEL_1);
+    if (g_event.buzzer == NULL) {
+        return NULL;
+    }
     g_event.alarm_active = false;
     g_event.essential_only = false;
     return &g_event;
@@ -42,7 +48,7 @@ void event_destroy(Event *e)
         return;
     }
     if (e->alarm_active) {
-        HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+        Buzzer_Stop(e->buzzer);
     }
 }
 
@@ -88,7 +94,7 @@ static void led_set_for_mode(monitor_mode_t mode)
 static void alarm_start(void)
 {
     if (!g_event.alarm_active) {
-        HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+        Buzzer_StartAlarm(g_event.buzzer);
         g_event.alarm_active = true;
     }
 }
@@ -96,7 +102,7 @@ static void alarm_start(void)
 static void alarm_stop_if_active(void)
 {
     if (g_event.alarm_active) {
-        HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+        Buzzer_Stop(g_event.buzzer);
         g_event.alarm_active = false;
     }
 }
@@ -104,16 +110,6 @@ static void alarm_stop_if_active(void)
 /* ===============================================================
  * Timestamp / events file
  * =============================================================== */
-
-static const char *mode_name(monitor_mode_t mode)
-{
-    switch (mode) {
-    case MODE_NORMAL:  return "NORMAL";
-    case MODE_WARNING: return "WARNING";
-    case MODE_ERROR:   return "ERROR";
-    default:           return "?";
-    }
-}
 
 /* HAL quirk: on this family, reading the RTC's shadow time/date registers
  * only latches correctly if GetTime is immediately followed by GetDate
@@ -180,7 +176,7 @@ void event_mode_changed(const monitor_measurement_t *data,
 
     snprintf(line, sizeof(line),
              "mode %s -> %s (temp=%dC hum=%u%% light=%u%% batt=%u%%)",
-             mode_name(old_mode), mode_name(new_mode),
+             monitor_mode_name(old_mode), monitor_mode_name(new_mode),
              data->temp_c, data->humidity_pct, data->light_pct, data->battery_pct);
     write_events_file(line);
 
@@ -246,15 +242,10 @@ void event_button_pressed(void)
     alarm_stop_if_active();
 }
 
-/* NVIC vector + HAL EXTI callback for BUTTON_D3/PB3 -- kept here instead
- * of stm32l4xx_it.c so the button's whole wiring (GPIO config in
- * main.c's MX_GPIO_Init, interrupt handling here, alarm-stop effect
- * above) lives with the module that owns its behavior. */
-
-void EXTI3_IRQHandler(void)
-{
-    HAL_GPIO_EXTI_IRQHandler(BUTTON_D3_Pin);
-}
+/* The NVIC vector (EXTI3_IRQHandler) is CubeMX-generated in
+ * stm32l4xx_it.c and regenerates whenever the .ioc changes; it just
+ * calls HAL_GPIO_EXTI_IRQHandler(), which dispatches to the weak
+ * callback below -- only the callback belongs here. */
 
 /* EXTI fires a burst of edges per physical press, so only a falling
  * edge more than BUTTON_DEBOUNCE_MS after the last accepted one counts

@@ -741,15 +741,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUTTON_D3_Pin (stop-alarm button, section 2.3) --
-   * polarity/pull not yet confirmed on this shield's own wiring (same
-   * caveat CLAUDE.md already flags for this pin); NOPULL+IT_FALLING
-   * assumed here to match B1's convention, verify on hardware. */
-  GPIO_InitStruct.Pin = BUTTON_D3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BUTTON_D3_GPIO_Port, &GPIO_InitStruct);
-
   /*Configure GPIO pins : RGB_RED_Pin RGB_BLUE_Pin RGB_GREEN_Pin SD_CS_Pin */
   GPIO_InitStruct.Pin = RGB_RED_Pin|RGB_BLUE_Pin|RGB_GREEN_Pin|SD_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -762,6 +753,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BUTTON_D2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : BUTTON_D3_Pin */
+  GPIO_InitStruct.Pin = BUTTON_D3_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BUTTON_D3_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
   HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
@@ -779,22 +780,12 @@ static void MX_GPIO_Init(void)
  * real send path is exercised again. */
 #define DEBUG_UART_PRINTF 1
 
-static const char *mode_name(monitor_mode_t mode)
-{
-    switch (mode) {
-    case MODE_NORMAL:  return "NORMAL";
-    case MODE_WARNING: return "WARNING";
-    case MODE_ERROR:   return "ERROR";
-    default:           return "?";
-    }
-}
-
 void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
 {
 #if DEBUG_UART_PRINTF
     printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
            data->temp_c, data->humidity_pct, data->light_pct,
-           data->battery_pct, mode_name(mode));
+           data->battery_pct, monitor_mode_name(mode));
 #else
     (void)data;
     (void)mode;

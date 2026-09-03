@@ -326,6 +326,16 @@ change an existing one without asking.
   timestamp; external DS1307 (I2C, `PC0`/`PC1`) is the durable source of truth,
   synced to the internal RTC at boot and on `SET_TIME` — see section 9 step 4's
   "RTC" bullet for the full design and why (no backup battery on `VBAT`).
+- "Suppress non-essential ops" (section 2.3's any→Error row): not implemented
+  yet, plan only. `event_is_essential_only()` already tracks the flag correctly
+  (event.c), but nothing reads it. Planned home: the LNC Communication module's
+  send path drops/refuses to queue `TLV_TAG_DATA_REPORT` frames while it's true,
+  leaving keep-alive and events unaffected — matches Communication's own existing
+  priority tiers (2.5: keep-alive > events > data reports), so "non-essential"
+  == the lowest tier. Deferred until Communication is un-stubbed for real
+  (`communication_create()` is still commented out in `main.c`) and something
+  actually sends `TLV_TAG_DATA_REPORT`, so this has real traffic to gate instead
+  of an untestable guess.
 
 If a decision is found in the code, add it to this list as a short line so the next
 session does not have to go looking for it.
@@ -552,23 +562,55 @@ mapping:
     latency per timestamp).
   - **External DS1307 is the durable source of truth**, touched only at
     specific moments, not on every timestamp:
-    - At boot, Init reads the DS1307 once and sets the internal RTC from it.
-    - On a `SET_TIME` command from the Central Computer, the new time gets
-      written to *both* — internal immediately (so timestamps are correct
-      right away) and external too (so the correction survives a power
-      drop instead of reverting to the stale value on the next boot).
+    - At boot, Init reads the DS1307 once and sets the internal RTC from
+      it — this is the fallback value, best guess available immediately,
+      before Communication with the Central Computer is even up.
+    - **One unified `set_time(datetime)` operation** (not two different
+      code paths) is used by both of the CC-sourced time events below: it
+      writes the given value to internal RTC immediately and to DS1307 in
+      parallel, both sourced directly from the value CC provided — never
+      a write-then-read-back through DS1307. Internal RTC's correctness
+      must never depend on DS1307/I2C bus health, matching the "no I2C
+      transaction, no dependency on the bus being healthy" property it
+      already has for reads.
+      - Init's own boot-time sync request (section 2.7, "asks the Central
+        Computer for date/time sync") calls `set_time()` when CC replies —
+        this *corrects* the DS1307-sourced fallback set moments earlier.
+      - A runtime `SET_TIME` command from the Central Computer calls the
+        same `set_time()`.
     - Optionally, a periodic resync (e.g. daily) re-reads the DS1307 to
       correct the internal RTC for crystal drift accumulated since boot.
-- **Buzzer — decided: PWM, not a plain toggle.** For a real tone rather
-  than a flat click. `TIM3_CH1` on `PB4` (a small general-purpose timer —
-  `PB4` is the chip's default `NJTRST` pin, free for this because the
-  board's debug config is SWD, not JTAG — same reason `PB3` ended up free
-  too, see the Button bullet above; this project doesn't use SWO).
-  Configured `Prescaler=79`, `Period=999`, `Pulse=9` — with the
-  80 MHz APB1 timer clock this project runs at, that's a 1 MHz counter
-  (80 MHz / 80), a 1 kHz PWM frequency (1 MHz / 1000 counts), and a
-  0.9% duty cycle (9 / 1000). Adjust `Pulse` to change duty/volume,
-  `Period`+`Prescaler` together to change the tone's pitch.
+- **Buzzer — decided: PWM, not a plain toggle, driven by a `Buzzer` ADT
+  (`LNC/Core/{Inc,Src}/buzzer.c/.h`), and TIM3 alone does both jobs —
+  no second timer.** For a real tone rather than a flat click. `TIM3_CH1`
+  on `PB4` (a small general-purpose timer — `PB4` is the chip's default
+  `NJTRST` pin, free for this because the board's debug config is SWD,
+  not JTAG — same reason `PB3` ended up free too, see the Button bullet
+  above; this project doesn't use SWO). Base config: `Prescaler=79` for
+  an 80 MHz APB1 timer clock this project runs at → a 1 MHz counter
+  (80 MHz / 80); `Period`/`Pulse` are then rewritten per note from
+  `buzzer.c`'s `note_table` (one {period, pulse} pair per `Note`, ~0.9%
+  duty at whatever period each note's frequency needs) instead of the
+  fixed single-tone values used before this ADT existed.
+  - **Note timing reuses TIM3's own update-elapsed interrupt** (already
+    enabled in the `.ioc` as `NVIC.TIM3_IRQn`, wired through
+    `stm32l4xx_hal_msp.c`/`stm32l4xx_it.c`) rather than a second
+    hardware timer — TIM3's update event fires once per PWM cycle
+    (i.e. at the tone's own frequency, not once per note), so
+    `Buzzer_DurationElapsed()` (called from `HAL_TIM_PeriodElapsedCallback`
+    in `buzzer.c`) accumulates elapsed microseconds across cycles and
+    only acts (stop, or advance to the next note) once a note's
+    requested duration has actually passed.
+  - **The alarm is the same ADT, not raw `HAL_TIM_PWM_*` calls.** Event's
+    `alarm_start()`/`alarm_stop_if_active()` call `Buzzer_StartAlarm()`/
+    `Buzzer_Stop()`, which is created once in `event_create()`
+    (`Buzzer_Create(&htim3, TIM_CHANNEL_1)`) — Event owns it since it's
+    the only consumer. `Buzzer_StartAlarm()` alternates two notes
+    (`NOTE_A1`/`NOTE_E2`, 300 ms each) indefinitely for a rising/falling
+    siren, driven by the same duration-elapsed mechanism above, until
+    `Buzzer_Stop()`.
+  - `Buzzer_Handle` is a static singleton (matching every other ADT in
+    this codebase — `Communication`, `Monitor`, `Event`), not `malloc`'d.
 - **RGB LED — decided: plain GPIO, on `PB13` (red) / `PB14` (blue) /
   `PB15` (green).** The spec only needs discrete colors via on/off R/G/B
   combinations, no brightness or color-mixing control — so no PWM needed
