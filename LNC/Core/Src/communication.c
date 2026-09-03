@@ -277,6 +277,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
     (void)HAL_UART_Receive_IT(&huart2, &g_comm.rx_isr_byte, 1);
 }
 
+/* The NVIC vector (USART2_IRQHandler) is CubeMX-generated in
+ * stm32l4xx_it.c and regenerates on every code-gen pass regardless of
+ * what lives elsewhere; it just calls HAL_UART_IRQHandler(), which
+ * dispatches to the callbacks above. Only the callbacks belong here. */
+
 /* Empty placeholders so the firmware links before Configuration/Init/
  * Log exist. Each real module later defines the same-named non-weak
  * function to take over -- no edits needed here when that happens. */

@@ -19,12 +19,15 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "fatfs.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "tlv.h"
 #include "communication.h"
 #include "monitor.h"
+#include "event.h"
+#include "sdfatfs.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -48,6 +51,8 @@ ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 
 I2C_HandleTypeDef hi2c3;
+
+RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi1;
 
@@ -78,6 +83,7 @@ static void MX_ADC2_Init(void);
 static void MX_I2C3_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_RTC_Init(void);
 void StartDefaultTask(void *argument);
 
 /* USER CODE BEGIN PFP */
@@ -128,8 +134,19 @@ int main(void)
   MX_I2C3_Init();
   MX_TIM3_Init();
   MX_TIM2_Init();
+  MX_FATFS_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start(&htim2);
+
+  /* TEMPORARY smoke test -- confirms the SD-over-SPI/FatFS wiring
+   * (user_diskio_spi.c + sdfatfs.c) actually works on this hardware
+   * before anything (Event, Log) depends on it. Remove once that's
+   * confirmed. Output goes over the same temporary debug-UART channel
+   * everything else's smoke test uses. */
+  SDFatFS_SaveString("SDTEST.TXT", "hello from LNC\r\n");
+  SDFatFS_ListFiles();
+  SDFatFS_PrintFile("SDTEST.TXT");
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -169,6 +186,13 @@ int main(void)
   {
       Monitor *monitor = monitor_create();
       if (monitor == NULL) {
+          Error_Handler();
+      }
+  }
+
+  {
+      Event *event = event_create(g_comm);
+      if (event == NULL) {
           Error_Handler();
       }
   }
@@ -218,9 +242,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
@@ -447,6 +472,77 @@ static void MX_I2C3_Init(void)
 }
 
 /**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Enable the TimeStamp
+  */
+  if (HAL_RTCEx_SetTimeStamp(&hrtc, RTC_TIMESTAMPEDGE_RISING, RTC_TIMESTAMPPIN_DEFAULT) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
   * @brief SPI1 Initialization Function
   * @param None
   * @retval None
@@ -639,14 +735,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : IR_Sensor_Pin BUTTON_D3_Pin DHT_Pin */
-  GPIO_InitStruct.Pin = IR_Sensor_Pin|BUTTON_D3_Pin|DHT_Pin;
+  /*Configure GPIO pins : IR_Sensor_Pin DHT_Pin */
+  GPIO_InitStruct.Pin = IR_Sensor_Pin|DHT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -664,8 +754,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BUTTON_D2_GPIO_Port, &GPIO_InitStruct);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /*Configure GPIO pin : BUTTON_D3_Pin */
+  GPIO_InitStruct.Pin = BUTTON_D3_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BUTTON_D3_GPIO_Port, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
@@ -679,45 +780,16 @@ static void MX_GPIO_Init(void)
  * real send path is exercised again. */
 #define DEBUG_UART_PRINTF 1
 
-static const char *mode_name(monitor_mode_t mode)
-{
-    switch (mode) {
-    case MODE_NORMAL:  return "NORMAL";
-    case MODE_WARNING: return "WARNING";
-    case MODE_ERROR:   return "ERROR";
-    default:           return "?";
-    }
-}
-
 void log_write(const monitor_measurement_t *data, monitor_mode_t mode)
 {
 #if DEBUG_UART_PRINTF
     printf("temp=%dC hum=%u%% light=%u%% batt=%u%% mode=%s\r\n",
            data->temp_c, data->humidity_pct, data->light_pct,
-           data->battery_pct, mode_name(mode));
+           data->battery_pct, monitor_mode_name(mode));
 #else
     (void)data;
+    (void)mode;
 #endif
-
-    /* Brief off-pulse so each 5 s round is visibly distinct, even when
-     * the mode (and thus color) doesn't change round to round. */
-    HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(RGB_BLUE_GPIO_Port, RGB_BLUE_Pin, GPIO_PIN_RESET);
-    osDelay(150);
-
-    switch (mode) {
-    case MODE_NORMAL:
-        HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_SET);
-        break;
-    case MODE_WARNING:
-        HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_SET);
-        HAL_GPIO_WritePin(RGB_GREEN_GPIO_Port, RGB_GREEN_Pin, GPIO_PIN_SET); /* yellow = red+green */
-        break;
-    case MODE_ERROR:
-        HAL_GPIO_WritePin(RGB_RED_GPIO_Port, RGB_RED_Pin, GPIO_PIN_SET);
-        break;
-    }
 }
 /* USER CODE END 4 */
 

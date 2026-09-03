@@ -18,10 +18,20 @@
 #include <stdint.h>
 
 typedef enum {
+    /* No reading taken yet -- Monitor starts here, not at MODE_NORMAL,
+     * so the very first classification always counts as a transition
+     * and fires event_mode_changed() (Event's LED/alarm would otherwise
+     * stay at their GPIO-init default until some later reading actually
+     * changed tier). Never a valid new_mode out of classify_mode(). */
+    MODE_UNKNOWN = -1,
     MODE_NORMAL,
     MODE_WARNING,
     MODE_ERROR
 } monitor_mode_t;
+
+/* Canonical string form of a mode, e.g. for log lines / debug prints.
+ * "?" for anything outside the enum. */
+const char *monitor_mode_name(monitor_mode_t mode);
 
 /* One round's readings, already in the friendly units used for both the
  * classification thresholds and whatever Log/Event do with them --

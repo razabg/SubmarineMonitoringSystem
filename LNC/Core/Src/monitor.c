@@ -67,7 +67,7 @@ Monitor *monitor_create(void)
         .priority = osPriorityNormal,
     };
 
-    g_monitor.mode = MODE_NORMAL;
+    g_monitor.mode = MODE_UNKNOWN;
     g_monitor.last_temp_c = 0;
     g_monitor.last_humidity_pct = 0;
 
@@ -147,6 +147,21 @@ static monitor_mode_t classify_mode(const monitor_measurement_t *data)
         return MODE_WARNING;
     }
     return MODE_NORMAL;
+}
+
+/* ===============================================================
+ * Mode <-> string
+ * =============================================================== */
+
+const char *monitor_mode_name(monitor_mode_t mode)
+{
+    switch (mode) {
+    case MODE_UNKNOWN: return "UNKNOWN";
+    case MODE_NORMAL:  return "NORMAL";
+    case MODE_WARNING: return "WARNING";
+    case MODE_ERROR:   return "ERROR";
+    default:           return "?";
+    }
 }
 
 /* ===============================================================

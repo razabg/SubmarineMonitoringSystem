@@ -42,7 +42,10 @@ extern "C" {
 extern UART_HandleTypeDef huart2;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
+
 extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim3;
+extern RTC_HandleTypeDef hrtc;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -65,8 +68,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define B1_Pin GPIO_PIN_13
-#define B1_GPIO_Port GPIOC
 #define I2C3_SCL_RTC_Pin GPIO_PIN_0
 #define I2C3_SCL_RTC_GPIO_Port GPIOC
 #define I2C3_SDA_RTC_Pin GPIO_PIN_1
@@ -101,6 +102,7 @@ void Error_Handler(void);
 #define TCK_GPIO_Port GPIOA
 #define BUTTON_D3_Pin GPIO_PIN_3
 #define BUTTON_D3_GPIO_Port GPIOB
+#define BUTTON_D3_EXTI_IRQn EXTI3_IRQn
 #define BUZZER_Pin GPIO_PIN_4
 #define BUZZER_GPIO_Port GPIOB
 #define DHT_Pin GPIO_PIN_5
@@ -109,6 +111,10 @@ void Error_Handler(void);
 #define SD_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+
+/* user_diskio_spi.c requires this -- see its own comment near the top:
+ * "Make sure you set #define SD_SPI_HANDLE as some hspix in main.h". */
+#define SD_SPI_HANDLE hspi1
 
 /* USER CODE END Private defines */
 

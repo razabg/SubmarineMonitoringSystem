@@ -275,6 +275,62 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* hi2c)
 }
 
 /**
+  * @brief RTC MSP Initialization
+  * This function configures the hardware resources used in this example
+  * @param hrtc: RTC handle pointer
+  * @retval None
+  */
+void HAL_RTC_MspInit(RTC_HandleTypeDef* hrtc)
+{
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+  if(hrtc->Instance==RTC)
+  {
+    /* USER CODE BEGIN RTC_MspInit 0 */
+
+    /* USER CODE END RTC_MspInit 0 */
+
+  /** Initializes the peripherals clock
+  */
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+    PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    /* Peripheral clock enable */
+    __HAL_RCC_RTC_ENABLE();
+    /* USER CODE BEGIN RTC_MspInit 1 */
+
+    /* USER CODE END RTC_MspInit 1 */
+
+  }
+
+}
+
+/**
+  * @brief RTC MSP De-Initialization
+  * This function freeze the hardware resources used in this example
+  * @param hrtc: RTC handle pointer
+  * @retval None
+  */
+void HAL_RTC_MspDeInit(RTC_HandleTypeDef* hrtc)
+{
+  if(hrtc->Instance==RTC)
+  {
+    /* USER CODE BEGIN RTC_MspDeInit 0 */
+
+    /* USER CODE END RTC_MspDeInit 0 */
+    /* Peripheral clock disable */
+    __HAL_RCC_RTC_DISABLE();
+    /* USER CODE BEGIN RTC_MspDeInit 1 */
+
+    /* USER CODE END RTC_MspDeInit 1 */
+  }
+
+}
+
+/**
   * @brief SPI MSP Initialization
   * This function configures the hardware resources used in this example
   * @param hspi: SPI handle pointer
@@ -387,6 +443,9 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim_pwm)
     /* USER CODE END TIM3_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_TIM3_CLK_ENABLE();
+    /* TIM3 interrupt Init */
+    HAL_NVIC_SetPriority(TIM3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(TIM3_IRQn);
     /* USER CODE BEGIN TIM3_MspInit 1 */
 
     /* USER CODE END TIM3_MspInit 1 */
@@ -458,6 +517,9 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* htim_pwm)
     /* USER CODE END TIM3_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_TIM3_CLK_DISABLE();
+
+    /* TIM3 interrupt DeInit */
+    HAL_NVIC_DisableIRQ(TIM3_IRQn);
     /* USER CODE BEGIN TIM3_MspDeInit 1 */
 
     /* USER CODE END TIM3_MspDeInit 1 */
