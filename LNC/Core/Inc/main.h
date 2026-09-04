@@ -45,6 +45,8 @@ extern ADC_HandleTypeDef hadc2;
 
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim3;
+extern TIM_HandleTypeDef htim5;
+extern TIM_HandleTypeDef htim8;
 extern RTC_HandleTypeDef hrtc;
 extern I2C_HandleTypeDef hi2c3;
 /* USER CODE END ET */
@@ -87,14 +89,17 @@ void Error_Handler(void);
 #define SPI1_MISO_SD_GPIO_Port GPIOA
 #define SPI_MOSI_SD_Pin GPIO_PIN_7
 #define SPI_MOSI_SD_GPIO_Port GPIOA
-#define IR_Sensor_Pin GPIO_PIN_10
-#define IR_Sensor_GPIO_Port GPIOB
+#define IR_RECEIVER_SONAR_Pin GPIO_PIN_10
+#define IR_RECEIVER_SONAR_GPIO_Port GPIOB
+#define IR_RECEIVER_SONAR_EXTI_IRQn EXTI15_10_IRQn
 #define RGB_RED_Pin GPIO_PIN_13
 #define RGB_RED_GPIO_Port GPIOB
 #define RGB_BLUE_Pin GPIO_PIN_14
 #define RGB_BLUE_GPIO_Port GPIOB
 #define RGB_GREEN_Pin GPIO_PIN_15
 #define RGB_GREEN_GPIO_Port GPIOB
+#define BLUE_LED_SONAR_Pin GPIO_PIN_9
+#define BLUE_LED_SONAR_GPIO_Port GPIOC
 #define BUTTON_D2_Pin GPIO_PIN_10
 #define BUTTON_D2_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13

@@ -13,6 +13,7 @@
 #include "tlv.h"
 #include "sdfatfs.h"
 #include "buzzer.h"
+#include "objectdetection.h"
 #include <stdio.h>
 
 #define EVENTS_FILENAME "EVENTS.TXT"
@@ -198,7 +199,7 @@ void event_mode_changed(const monitor_measurement_t *data,
 void event_object_detected(void)
 {
     led_red();
-    alarm_start();
+    Buzzer_StartSonar(g_event.buzzer);
     write_events_file("object detected");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_DETECTED, NULL, 0);
 }
@@ -206,7 +207,7 @@ void event_object_detected(void)
 void event_object_cleared(void)
 {
     led_green();
-    alarm_stop_if_active();
+    Buzzer_Stop(g_event.buzzer);
     write_events_file("object cleared");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_CLEARED, NULL, 0);
 }
@@ -253,19 +254,23 @@ void event_button_pressed(void)
  * per the project's "ISRs do the minimum" rule. */
 #define BUTTON_DEBOUNCE_MS 50
 
+/* Shared HAL callback -- only one strong definition allowed in the
+ * whole program. Event got here first (the button), so it also
+ * dispatches Object Detection's IR pin, immediately delegating to
+ * objdet_on_edge() rather than owning that logic itself. */
 void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 {
     static uint32_t last_press_tick = 0;
     uint32_t now;
 
-    if (gpio_pin != BUTTON_D3_Pin) {
-        return;
-    }
-
-    now = HAL_GetTick();
-    if (now - last_press_tick > BUTTON_DEBOUNCE_MS) {
-        last_press_tick = now;
-        event_button_pressed();
+    if (gpio_pin == BUTTON_D3_Pin) {
+        now = HAL_GetTick();
+        if (now - last_press_tick > BUTTON_DEBOUNCE_MS) {
+            last_press_tick = now;
+            event_button_pressed();
+        }
+    } else if (gpio_pin == IR_RECEIVER_SONAR_Pin) {
+        objdet_on_edge();
     }
 }
 
