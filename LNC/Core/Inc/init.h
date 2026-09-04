@@ -11,6 +11,13 @@
  * (section 2.5's TLV_TAG_GET_TIME) with the LNC's current time, since
  * Init is the module that owns RTC concerns.
  *
+ * "Starts all system activities" (section 2.7): init_create() is also
+ * where Event, Log, Configuration, and Monitor actually get created --
+ * main() only creates Init (and Communication, which is transport
+ * plumbing, not a "system activity"). Event has to come first, since
+ * Init's own startup report needs it to already exist; everything
+ * else follows after Init's own watchdog/DS1307/CC-sync-kickoff work.
+ *
  * ADT, matching monitor.c's/event.c's/log.c's shape: opaque handle,
  * one static instance, create()/destroy().
  */
@@ -22,11 +29,12 @@
 typedef struct Init Init;
 /* Opaque handle -- fields live only in init.c. */
 
-/* Call once from main(), after Event is created (Init reports startup
- * to Event) -- comm may be NULL if Communication isn't up yet, same
- * tolerance event_create() already has. Returns the handle -- never
- * NULL in practice, a DS1307 read failure is logged/skipped rather
- * than fatal to boot, kept for ADT consistency with the other modules. */
+/* Call once from main(), after Communication (comm may be NULL if it
+ * isn't up yet -- comm_send() tolerates that, same as every other
+ * module's comm use). Creates Event/Log/Configuration/Monitor
+ * internally -- main() doesn't call their create() functions itself.
+ * Returns the handle, or NULL if any of them (or Init's own setup)
+ * failed. */
 Init *init_create(Communication *comm);
 
 /* Provided for ADT completeness; not expected to be called in practice

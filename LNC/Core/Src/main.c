@@ -25,11 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "tlv.h"
 #include "communication.h"
-#include "monitor.h"
-#include "event.h"
 #include "init.h"
-#include "log.h"
-#include "sdfatfs.h"
 #include "RTC_ds1307_I2C.h"
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -196,32 +192,23 @@ int main(void)
 //      (void)comm_send(g_comm, TLV_TAG_KEEP_ALIVE, dummy_payload, sizeof(dummy_payload));
 //  }
 
-  {
-      Log *log = log_create();
-      if (log == NULL) {
-          Error_Handler();
-      }
-  }
-
-  {
-      Monitor *monitor = monitor_create();
-      if (monitor == NULL) {
-          Error_Handler();
-      }
-  }
-
-  {
-      Event *event = event_create(g_comm);
-      if (event == NULL) {
-          Error_Handler();
-      }
-  }
-
+  /* Init starts everything else (Event, Log, Configuration, Monitor)
+   * internally -- section 2.7's "starts all system activities". */
   {
       Init *init = init_create(g_comm);
       if (init == NULL) {
           Error_Handler();
       }
+  }
+
+  /* TEMPORARY debug -- read Configuration's Flash page straight
+   * through a pointer, same readback style as the DS1307 seed above.
+   * Address must match CONFIG_FLASH_ADDR in config.c. Remove once
+   * confirmed. */
+  {
+      const uint32_t *stored = (const uint32_t *)0x080FF800U;
+      printf("Flash config magic: 0x%08lX (expect 0x434F4E46)\r\n",
+             (unsigned long)stored[0]);
   }
 
   /* add threads, ... */

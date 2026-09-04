@@ -5,6 +5,9 @@
 #include "init.h"
 #include "main.h"
 #include "event.h"
+#include "log.h"
+#include "config.h"
+#include "monitor.h"
 #include "tlv.h"
 #include "RTC_ds1307_I2C.h"
 #include <stdbool.h>
@@ -165,17 +168,35 @@ void init_on_frame(const tlv_frame_t *f)
  * Public API: create / destroy
  * =============================================================== */
 
+/* Section 2.7: "starts all system activities" -- Event first (Init's
+ * own startup report needs it to already exist), then everything
+ * else. Doesn't block waiting for the CC's time-sync reply (see
+ * CLAUDE.md's RTC design) -- it fires the request and moves on, same
+ * as every other module here just gets started, not waited on. */
 Init *init_create(Communication *comm)
 {
     bool was_wd_reset;
 
     g_init.comm = comm;
 
+    if (event_create(comm) == NULL) {
+        return NULL;
+    }
+
     was_wd_reset = check_and_clear_watchdog_reset();
     sync_internal_rtc_from_ds1307();
     event_startup(was_wd_reset);
-
     (void)comm_send(g_init.comm, TLV_TAG_TIME_SYNC_REQUEST, NULL, 0);
+
+    if (log_create() == NULL) {
+        return NULL;
+    }
+    if (config_create() == NULL) {
+        return NULL;
+    }
+    if (monitor_create() == NULL) {
+        return NULL;
+    }
 
     return &g_init;
 }

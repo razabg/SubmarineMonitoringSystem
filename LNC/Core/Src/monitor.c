@@ -11,33 +11,7 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "DHT11.h"
-
-/* ===============================================================
- * Limits
- *
- * Placeholder defaults -- Configuration will own the real values once
- * it exists (section 2.6), persisted in Flash and changeable at
- * runtime. Chosen with submarine-cabin reasoning for now: temperature
- * has a real range (too hot *and* too cold are both risks, one hull
- * thickness from cold seawater); humidity/light/battery are lower-bound
- * only, matching the TLV command tags already fixed in tlv.h (SET_HUM_*/
-// * SET_LIGHT_*/SET_BATT_* are documented there as lower bounds, no
-// * ceiling concept exists in the wire protocol as it stands).
-// * =============================================================== */
-
-#define TEMP_NORMAL_MIN     15
-#define TEMP_NORMAL_MAX     27
-#define TEMP_WARNING_MIN    10
-#define TEMP_WARNING_MAX    30
-
-#define HUMIDITY_NORMAL_MIN   30
-#define HUMIDITY_WARNING_MIN  20
-
-#define LIGHT_NORMAL_MIN    40
-#define LIGHT_WARNING_MIN   20
-
-#define BATTERY_NORMAL_MIN   40
-#define BATTERY_WARNING_MIN  20
+#include "config.h"
 
 /* ===============================================================
  * Module state
@@ -134,11 +108,12 @@ static sensor_tier_t classify_lower_bound(int32_t value, int32_t normal_min, int
 
 static monitor_mode_t classify_mode(const monitor_measurement_t *data)
 {
-    sensor_tier_t temp  = classify_range(data->temp_c, TEMP_NORMAL_MIN, TEMP_NORMAL_MAX,
-                                          TEMP_WARNING_MIN, TEMP_WARNING_MAX);
-    sensor_tier_t hum   = classify_lower_bound(data->humidity_pct, HUMIDITY_NORMAL_MIN, HUMIDITY_WARNING_MIN);
-    sensor_tier_t light = classify_lower_bound(data->light_pct, LIGHT_NORMAL_MIN, LIGHT_WARNING_MIN);
-    sensor_tier_t batt  = classify_lower_bound(data->battery_pct, BATTERY_NORMAL_MIN, BATTERY_WARNING_MIN);
+    const config_limits_t *limits = config_get_limits();
+    sensor_tier_t temp  = classify_range(data->temp_c, limits->temp_normal_min, limits->temp_normal_max,
+                                          limits->temp_warning_min, limits->temp_warning_max);
+    sensor_tier_t hum   = classify_lower_bound(data->humidity_pct, limits->humidity_normal_min, limits->humidity_warning_min);
+    sensor_tier_t light = classify_lower_bound(data->light_pct, limits->light_normal_min, limits->light_warning_min);
+    sensor_tier_t batt  = classify_lower_bound(data->battery_pct, limits->battery_normal_min, limits->battery_warning_min);
 
     if (temp == TIER_ERROR || hum == TIER_ERROR || light == TIER_ERROR || batt == TIER_ERROR) {
         return MODE_ERROR;
