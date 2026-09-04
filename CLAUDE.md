@@ -356,6 +356,18 @@ change an existing one without asking.
   disabled/removed again right after use — left enabled, it re-stamps the
   DS1307 with the same stale hardcoded value on every single boot,
   overwriting whatever correct time it had built up since.
+- **Deliberate deviation from section 2.5's "set RTC date and time" command:
+  not implemented, by design.** This project's time protocol only has two
+  exchanges — Init's own boot-time sync request (`TLV_TAG_TIME_SYNC_REQUEST`
+  → `TLV_TAG_TIME_SYNC_REPLY`, LNC asks CC) and the CC checking the LNC's
+  current time (`TLV_TAG_GET_TIME` → `TLV_TAG_TIME_REPLY`, CC asks LNC). The
+  CC is never able to push a time correction to the LNC outside of answering
+  Init's own request — `TLV_TAG_SET_TIME` has been removed from `tlv.h`
+  entirely (was `0x28`; `TLV_TAG_GET_TIME`/`TLV_TAG_TIME_SYNC_REPLY` shifted
+  down to fill the gap) and from `communication.c`'s routing. If a future
+  session needs to reconcile against the source document and finds "set RTC
+  date and time" still listed there as its own command, this is a known,
+  deliberate deviation, not an oversight — ask before reintroducing it.
 - "Suppress non-essential ops" (section 2.3's any→Error row): not implemented
   yet, plan only. `event_is_essential_only()` already tracks the flag correctly
   (event.c), but nothing reads it. Planned home: the LNC Communication module's
@@ -653,30 +665,26 @@ Write the resulting map (peripheral → owning module → FreeRTOS task) down
 here once it's decided, before implementing, so the next session doesn't
 have to reverse-engineer it from `main.c`.
 
-In this order — each one is small and independently testable once
-Communication exists to observe it through:
+Actual order so far deviated from the original plan below (built
+bottom-up from what was independently testable on hardware first,
+without waiting for Communication to be live) — done: **Monitor**,
+**Event**, **Log**, **Init**. Remaining, in this order:
 
-1. **Init** — reads the external DS1307 once to set the internal RTC (see
-   the RTC bullet above), then does the time sync request over
-   Communication, then starts everything else. Simplest module; nothing
-   depends on sensor data.
-2. **Watchdog** — refresh on schedule; Init needs to be able to report a WD
-   reset (section 2.9), so build this early enough to test that report path.
-3. **Keep-Alive** — 6 s timer sending timestamp + latest measurement + mode
-   through Communication. Gives you a heartbeat visible on the CC side with
-   minimal logic, useful as an ongoing smoke test for everything built after
-   it.
-4. **Monitor** — 5 s sampling loop, limit comparison, mode decision, sends to
-   Log always and to Event only on a mode change (section 2.1).
-5. **Event** — the transition/LED/alarm table in section 2.3. Depends on
-   Monitor existing to drive it.
-6. **Log** — daily file, 7-day rotation (section 2.4).
-7. **Configuration** — Flash persistence, defaults on first boot, receives
-   changes via Communication (section 2.6). Left for after Monitor/Event
-   since it's what tunes their thresholds, not what they need to exist.
-8. **Object Detection** — last: independent of the others, lowest priority
-   per the "not in scope" neighbors (Motor/Navigation Units) in the data-flow
-   diagram, and needs Event but nothing else.
+1. **Configuration** — Flash persistence, defaults on first boot, receives
+   changes via Communication (section 2.6). Its Flash-persistence half is
+   testable standalone the same way Log/Event were; its "receives changes
+   via Communication" half waits on Communication being un-stubbed, same
+   gap Init's CC-sync piece has.
+2. **Keep-Alive** — 6 s timer sending timestamp + latest measurement + mode
+   through Communication. Small, and mostly blocked on Communication being
+   live to actually observe it.
+3. **Object Detection** — IR sensor (VS1838B) presence-timeout logic (see
+   its own bullet above), needs Event but nothing else. Needs its own
+   distinct sonar-style buzzer sound, not Event's Error-mode alarm siren.
+4. **Watchdog** — deliberately saved for last. Refresh on schedule; Init
+   already handles reporting whether the last boot was a WD reset (built
+   ahead of Watchdog itself, reading the passive `RCC_FLAG_IWDGRST` flag,
+   which works with or without Watchdog actually running the timer).
 
 ### 5. CentralComputer business logic (parallel to step 4)
 

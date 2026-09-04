@@ -95,7 +95,12 @@ extern "C"
                                             * other way. Answered by
                                             * TLV_TAG_TIME_SYNC_REPLY.       */
 
-        /* Central Computer -> LNC : the ten management commands */
+        /* Central Computer -> LNC : the eight threshold-setting commands,
+         * plus GET_TIME/TIME_SYNC_REPLY (see below). No SET_TIME -- this
+         * design deliberately never lets the CC push a time correction;
+         * the only two time exchanges are TLV_TAG_TIME_SYNC_REQUEST
+         * above (LNC asks CC, at boot) and TLV_TAG_GET_TIME below (CC
+         * asks LNC, any time). */
         TLV_TAG_SET_TEMP_NORMAL = 0x20,   /* temperature range for Normal      */
         TLV_TAG_SET_TEMP_WARNING = 0x21,  /* temperature range for Warning     */
         TLV_TAG_SET_HUM_NORMAL = 0x22,    /* humidity lower bound, Normal      */
@@ -104,15 +109,14 @@ extern "C"
         TLV_TAG_SET_LIGHT_WARNING = 0x25, /* light lower bound, Warning        */
         TLV_TAG_SET_BATT_NORMAL = 0x26,   /* battery lower bound, Normal       */
         TLV_TAG_SET_BATT_WARNING = 0x27,  /* battery lower bound, Warning      */
-        TLV_TAG_SET_TIME = 0x28,          /* set the RTC                       */
-        TLV_TAG_GET_TIME = 0x29,          /* CC asks the LNC's current time,
+        TLV_TAG_GET_TIME = 0x28,          /* CC asks the LNC's current time,
                                             * e.g. to check it's synced --
                                             * answered by TLV_TAG_TIME_REPLY
                                             * below. Not Init's own sync
                                             * request -- see
                                             * TLV_TAG_TIME_SYNC_REQUEST
                                             * above for that.               */
-        TLV_TAG_TIME_SYNC_REPLY = 0x2A,   /* CC's answer to Init's
+        TLV_TAG_TIME_SYNC_REPLY = 0x29,   /* CC's answer to Init's
                                             * TLV_TAG_TIME_SYNC_REQUEST      */
 
         /* Central Computer -> LNC : queries */

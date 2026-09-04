@@ -45,8 +45,6 @@ const char *tlv_tag_name(uint8_t tag)
         return "SET_BATT_NORMAL";
     case TLV_TAG_SET_BATT_WARNING:
         return "SET_BATT_WARNING";
-    case TLV_TAG_SET_TIME:
-        return "SET_TIME";
     case TLV_TAG_GET_TIME:
         return "GET_TIME";
     case TLV_TAG_TIME_SYNC_REPLY:
