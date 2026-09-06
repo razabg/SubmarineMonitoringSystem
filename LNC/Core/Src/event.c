@@ -13,6 +13,8 @@
 #include "tlv.h"
 #include "sdfatfs.h"
 #include "buzzer.h"
+#include "sonarled.h"
+#include "objectdetection.h"
 #include <stdio.h>
 
 #define EVENTS_FILENAME "EVENTS.TXT"
@@ -20,7 +22,9 @@
 struct Event {
     Communication *comm;
     Buzzer_Handle *buzzer;
+    SonarLed *sonar_led;
     bool alarm_active;
+    bool sonar_active;
     bool essential_only;
 };
 
@@ -37,7 +41,12 @@ Event *event_create(Communication *comm)
     if (g_event.buzzer == NULL) {
         return NULL;
     }
+    g_event.sonar_led = SonarLed_Create(&htim8, TIM_CHANNEL_4);
+    if (g_event.sonar_led == NULL) {
+        return NULL;
+    }
     g_event.alarm_active = false;
+    g_event.sonar_active = false;
     g_event.essential_only = false;
     return &g_event;
 }
@@ -104,6 +113,17 @@ static void alarm_stop_if_active(void)
     if (g_event.alarm_active) {
         Buzzer_Stop(g_event.buzzer);
         g_event.alarm_active = false;
+    }
+}
+
+/* Silences the sonar ping (button press), but leaves the breathing LED
+ * on -- same split as the alarm above: the button stops the *sound*,
+ * the object is still present until a real clear arrives. */
+static void sonar_stop_if_active(void)
+{
+    if (g_event.sonar_active) {
+        Buzzer_Stop(g_event.buzzer);
+        g_event.sonar_active = false;
     }
 }
 
@@ -191,22 +211,25 @@ void event_mode_changed(const monitor_measurement_t *data,
 }
 
 /* ===============================================================
- * Dispatch: Object Detection -> Event (module not built yet)
- * thnk of use the seperate blue and red led to that
+ * Dispatch: Object Detection -> Event
  * =============================================================== */
 
 void event_object_detected(void)
 {
-    led_red();
-    alarm_start();
+
+    Buzzer_StartSonar(g_event.buzzer);
+    g_event.sonar_active = true;
+    SonarLed_Start(g_event.sonar_led);
     write_events_file("object detected");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_DETECTED, NULL, 0);
 }
 
 void event_object_cleared(void)
 {
-    led_green();
-    alarm_stop_if_active();
+
+    Buzzer_Stop(g_event.buzzer);
+    g_event.sonar_active = false;
+    SonarLed_Stop(g_event.sonar_led);
     write_events_file("object cleared");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_CLEARED, NULL, 0);
 }
@@ -240,6 +263,7 @@ void event_startup(bool was_watchdog_reset)
 void event_button_pressed(void)
 {
     alarm_stop_if_active();
+    sonar_stop_if_active();
 }
 
 /* The NVIC vector (EXTI3_IRQHandler) is CubeMX-generated in
@@ -253,19 +277,23 @@ void event_button_pressed(void)
  * per the project's "ISRs do the minimum" rule. */
 #define BUTTON_DEBOUNCE_MS 50
 
+/* Shared HAL callback -- only one strong definition allowed in the
+ * whole program. Event got here first (the button), so it also
+ * dispatches Object Detection's IR pin, immediately delegating to
+ * objdet_on_edge() rather than owning that logic itself. */
 void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 {
     static uint32_t last_press_tick = 0;
     uint32_t now;
 
-    if (gpio_pin != BUTTON_D3_Pin) {
-        return;
-    }
-
-    now = HAL_GetTick();
-    if (now - last_press_tick > BUTTON_DEBOUNCE_MS) {
-        last_press_tick = now;
-        event_button_pressed();
+    if (gpio_pin == BUTTON_D3_Pin) {
+        now = HAL_GetTick();
+        if (now - last_press_tick > BUTTON_DEBOUNCE_MS) {
+            last_press_tick = now;
+            event_button_pressed();
+        }
+    } else if (gpio_pin == IR_RECEIVER_SONAR_Pin) {
+        objdet_on_edge();
     }
 }
 

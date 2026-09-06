@@ -31,6 +31,12 @@ void Buzzer_Stop(Buzzer_Handle *h);
  * until Buzzer_Stop(). */
 void Buzzer_StartAlarm(Buzzer_Handle *h);
 
+/* Starts an indefinite "ping ... ping ... ping" loop (Object
+ * Detection's sonar, distinct from the alarm siren above); keeps
+ * going until Buzzer_Stop(). Only one pattern can sound at a time --
+ * starting this cancels the alarm if it was running, and vice versa. */
+void Buzzer_StartSonar(Buzzer_Handle *h);
+
 /* Called from TIM3's HAL_TIM_PeriodElapsedCallback -- once per PWM
  * cycle (i.e. far more often than once per note), since that's the
  * only update event this shared timer produces. Internally accumulates

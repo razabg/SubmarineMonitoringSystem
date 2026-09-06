@@ -12,11 +12,12 @@
  * Init is the module that owns RTC concerns.
  *
  * "Starts all system activities" (section 2.7): init_create() is also
- * where Event, Log, Configuration, and Monitor actually get created --
- * main() only creates Init (and Communication, which is transport
- * plumbing, not a "system activity"). Event has to come first, since
- * Init's own startup report needs it to already exist; everything
- * else follows after Init's own watchdog/DS1307/CC-sync-kickoff work.
+ * where Event, Log, Configuration, Monitor, and Object Detection
+ * actually get created -- main() only creates Init (and Communication,
+ * which is transport plumbing, not a "system activity"). Event has to
+ * come first, since Init's own startup report needs it to already
+ * exist; everything else follows after Init's own
+ * watchdog/DS1307/CC-sync-kickoff work.
  *
  * ADT, matching monitor.c's/event.c's/log.c's shape: opaque handle,
  * one static instance, create()/destroy().
