@@ -797,20 +797,25 @@ have to reverse-engineer it from `main.c`.
 Actual order so far deviated from the original plan below (built
 bottom-up from what was independently testable on hardware first,
 without waiting for Communication to be live) — done: **Monitor**,
-**Event**, **Log**, **Init**. Remaining, in this order:
+**Event**, **Log**, **Init**, **Configuration**, **Object Detection**
+(core state machine, sonar sound, breathing LED all built and
+hardware-confirmed; buzzer contention bug still open, see section 7),
+**Keep-Alive**. Remaining:
 
-1. **Configuration** — Flash persistence, defaults on first boot, receives
-   changes via Communication (section 2.6). Its Flash-persistence half is
-   testable standalone the same way Log/Event were; its "receives changes
-   via Communication" half waits on Communication being un-stubbed, same
-   gap Init's CC-sync piece has.
-2. **Keep-Alive** — 6 s timer sending timestamp + latest measurement + mode
-   through Communication. Small, and mostly blocked on Communication being
-   live to actually observe it.
-3. **Object Detection** — in progress, see section 7's status note for
-   exactly where this stands (state machine + sonar sound built and
-   correctness-confirmed; breathing LED and buzzer contention still open).
-4. **Watchdog** — deliberately saved for last. Refresh on schedule; Init
+1. **Keep-Alive** — built (`keepalive.c/.h`): its own task, `osDelayUntil`
+   every 6 s, no hardware timer (matches this section's already-decided
+   design for Monitor/Keep-Alive/Watchdog). Reads Monitor's latest
+   measurement + mode via a new `monitor_get_latest()` getter (Monitor's
+   `struct Monitor` gained a full `last_data` cache plus an `osMutexId_t`
+   guarding it as a pair, since this is the first cross-task read in this
+   codebase spanning more than one field). Sends `TLV_TAG_KEEP_ALIVE`
+   with a provisional packed payload (timestamp + measurement + mode, no
+   `dow`) — same "nothing on the CC side parses this yet" status as
+   `event.c`'s `mode_change_payload_t` / `init.c`'s `time_payload_t`.
+   Wired into `init_create()`, after `objdet_create()`. Not yet
+   hardware-tested (blocked on Communication being un-stubbed to
+   actually observe it going out).
+2. **Watchdog** — deliberately saved for last. Refresh on schedule; Init
    already handles reporting whether the last boot was a WD reset (built
    ahead of Watchdog itself, reading the passive `RCC_FLAG_IWDGRST` flag,
    which works with or without Watchdog actually running the timer).

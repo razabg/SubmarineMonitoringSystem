@@ -23,6 +23,8 @@ struct Monitor {
     DHT_Handle    *dht;
     int16_t        last_temp_c;
     uint8_t        last_humidity_pct;
+    monitor_measurement_t last_data; /* full last round, for monitor_get_latest() */
+    osMutexId_t    latest_lock;      /* guards mode + last_data as a pair */
 };
 
 static struct Monitor g_monitor;
@@ -44,6 +46,12 @@ Monitor *monitor_create(void)
     g_monitor.mode = MODE_UNKNOWN;
     g_monitor.last_temp_c = 0;
     g_monitor.last_humidity_pct = 0;
+    g_monitor.last_data = (monitor_measurement_t){0};
+
+    g_monitor.latest_lock = osMutexNew(NULL);
+    if (g_monitor.latest_lock == NULL) {
+        return NULL;
+    }
 
     g_monitor.dht = DHT_Create(DHT_GPIO_Port, DHT_Pin, &htim2);
     if (g_monitor.dht == NULL) {
@@ -218,11 +226,26 @@ static void monitor_task(void *argument)
         }
         log_write(&data, new_mode);
 
+        osMutexAcquire(self->latest_lock, osWaitForever);
         self->mode = new_mode;
+        self->last_data = data;
+        osMutexRelease(self->latest_lock);
 
         tick += 5000U;
         osDelayUntil(tick);
     }
+}
+
+/* ===============================================================
+ * Queries
+ * =============================================================== */
+
+void monitor_get_latest(monitor_measurement_t *out_data, monitor_mode_t *out_mode)
+{
+    osMutexAcquire(g_monitor.latest_lock, osWaitForever);
+    *out_data = g_monitor.last_data;
+    *out_mode = g_monitor.mode;
+    osMutexRelease(g_monitor.latest_lock);
 }
 
 /* Kept for reference -- this was main.c's TEMPORARY debug log_write(),

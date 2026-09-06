@@ -55,4 +55,14 @@ Monitor *monitor_create(void);
  * to be called in practice on real hardware. */
 void monitor_destroy(Monitor *m);
 
+/* Copies out the most recently completed round's measurement + mode --
+ * for Keep-Alive, which runs on its own independent 6 s schedule and
+ * needs whatever Monitor last saw, not a fresh sample of its own.
+ * Mutex-guarded internally: unlike this codebase's other cross-task
+ * flags (all single bools), this is several fields read together, so a
+ * plain read could tear (e.g. new temp paired with stale humidity).
+ * Safe to call before Monitor's first round completes -- reads back
+ * whatever monitor_create() initialized (MODE_UNKNOWN, zeroed data). */
+void monitor_get_latest(monitor_measurement_t *out_data, monitor_mode_t *out_mode);
+
 #endif /* MONITOR_H */
