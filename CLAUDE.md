@@ -800,25 +800,66 @@ without waiting for Communication to be live) — done: **Monitor**,
 **Event**, **Log**, **Init**, **Configuration**, **Object Detection**
 (core state machine, sonar sound, breathing LED all built and
 hardware-confirmed; buzzer contention bug still open, see section 7),
-**Keep-Alive**. Remaining:
+**Keep-Alive**, **Watchdog**. All nine LNC modules are now built.
 
-1. **Keep-Alive** — built (`keepalive.c/.h`): its own task, `osDelayUntil`
-   every 6 s, no hardware timer (matches this section's already-decided
-   design for Monitor/Keep-Alive/Watchdog). Reads Monitor's latest
-   measurement + mode via a new `monitor_get_latest()` getter (Monitor's
-   `struct Monitor` gained a full `last_data` cache plus an `osMutexId_t`
-   guarding it as a pair, since this is the first cross-task read in this
-   codebase spanning more than one field). Sends `TLV_TAG_KEEP_ALIVE`
-   with a provisional packed payload (timestamp + measurement + mode, no
-   `dow`) — same "nothing on the CC side parses this yet" status as
-   `event.c`'s `mode_change_payload_t` / `init.c`'s `time_payload_t`.
-   Wired into `init_create()`, after `objdet_create()`. Not yet
-   hardware-tested (blocked on Communication being un-stubbed to
-   actually observe it going out).
-2. **Watchdog** — deliberately saved for last. Refresh on schedule; Init
-   already handles reporting whether the last boot was a WD reset (built
-   ahead of Watchdog itself, reading the passive `RCC_FLAG_IWDGRST` flag,
-   which works with or without Watchdog actually running the timer).
+**Keep-Alive** — `keepalive.c/.h`: its own task, `osDelayUntil` every
+6 s, no hardware timer (matches this section's already-decided design
+for Monitor/Keep-Alive/Watchdog). Reads Monitor's latest measurement +
+mode via a new `monitor_get_latest()` getter (Monitor's `struct
+Monitor` gained a full `last_data` cache plus an `osMutexId_t` guarding
+it as a pair, since this is the first cross-task read in this codebase
+spanning more than one field). Sends `TLV_TAG_KEEP_ALIVE` with a
+provisional packed payload (timestamp + measurement + mode, no `dow`)
+— same "nothing on the CC side parses this yet" status as `event.c`'s
+`mode_change_payload_t` / `init.c`'s `time_payload_t`. Wired into
+`init_create()`, after `objdet_create()`. **Hardware-confirmed**: a
+`makefile` was added for `CentralComputer/src/communication/` (built
+`comm_test` clean against the current `tlv.c`/`tlv.h`) and the full
+round trip was observed live — `TLV_TAG_KEEP_ALIVE` frames decoding
+correctly (timestamp, measurement, mode all sane), plus a real
+`TLV_TAG_MODE_CHANGE` (Error→Normal) and `TLV_TAG_OBJECT_DETECTED`/
+`OBJECT_CLEARED` frames, all field-correct on the CC side. This also
+surfaced a real bug, now fixed: `sdfatfs.c`'s `printf()` calls (SD
+card status/write messages) share `USART2` with Communication's real
+TLV traffic — harmless while Communication was stubbed, but once
+`communication_create()` went live, mixing human-readable debug text
+into the same wire as binary TLV frames corrupted the stream (visible
+as garbled binary mixed with readable text on the console).
+`SDFatFS_SaveData()`'s and `SDFatFS_DeleteFile()`'s `printf()` calls
+(the two functions actually on the live path, via `event.c`/`log.c`)
+are now commented out, not deleted, so they're easy to re-enable for
+future debugging with Communication disabled. `SDFatFS_PrintFile()`/
+`ListFiles()` are unused by any module and were left untouched.
+`TLV_TAG_TIME_SYNC_REQUEST` (`0x16`) is still silently dropped by the
+CC's `communication.cpp`'s `route_frame()` (no case for it) — known,
+not yet fixed, harmless since nothing replies to it yet either.
+
+**Watchdog** — `watchdog.c/.h`: uses **IWDG, not WWDG** — IWDG is
+clocked from `LSI`, independent of the main system clock, so it still
+protects the system even if the main clock itself is what's broken;
+WWDG is clocked from `PCLK1` and would be compromised right along with
+it. Section 2.9 only asks for a plain "refresh on schedule" liveness
+check, not WWDG's early-refresh-also-resets window behaviour, which
+this project has no use for. Its own task, `osDelayUntil` every 1000ms,
+no hardware timer (same already-decided design). Wired into
+`init_create()`, after `keepalive_create()`. Init already handles
+reporting whether the last boot was a WD reset (built ahead of
+Watchdog itself, reading the passive `RCC_FLAG_IWDGRST` flag, which
+works with or without Watchdog actually running the timer).
+**Needs a CubeMX step not yet done**: IWDG must be activated in the
+`.ioc` (System Core → IWDG) with its timeout set to ~4000ms, which
+generates `hiwdg` (already `extern`'d in `main.h`) and calls
+`MX_IWDG_Init()` from `main()`. Until that's done, this won't link.
+`HAL_IWDG_Init()` both configures *and* starts the countdown
+immediately, before `osKernelStart()` even runs — so the 4s timeout
+also has to comfortably cover the rest of `main()`'s boot sequence
+(the other modules' `create()` calls, SD card mounts, Flash reads)
+before this task's first refresh actually executes; 1000ms refresh
+against a 4000ms timeout gives 4x margin, generous against both LSI's
+~5% inaccuracy and normal scheduling jitter, but if the board resets
+repeatedly right at boot once this is flashed, an unexpectedly slow
+boot sequence colliding with this timeout is the first thing to check.
+Not yet hardware-tested (blocked on the CubeMX step above).
 
 ### 5. CentralComputer business logic (parallel to step 4)
 
