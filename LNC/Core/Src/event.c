@@ -13,6 +13,7 @@
 #include "tlv.h"
 #include "sdfatfs.h"
 #include "buzzer.h"
+#include "sonarled.h"
 #include "objectdetection.h"
 #include <stdio.h>
 
@@ -21,6 +22,7 @@
 struct Event {
     Communication *comm;
     Buzzer_Handle *buzzer;
+    SonarLed *sonar_led;
     bool alarm_active;
     bool essential_only;
 };
@@ -36,6 +38,10 @@ Event *event_create(Communication *comm)
     g_event.comm = comm;
     g_event.buzzer = Buzzer_Create(&htim3, TIM_CHANNEL_1);
     if (g_event.buzzer == NULL) {
+        return NULL;
+    }
+    g_event.sonar_led = SonarLed_Create(&htim8, TIM_CHANNEL_4);
+    if (g_event.sonar_led == NULL) {
         return NULL;
     }
     g_event.alarm_active = false;
@@ -192,22 +198,23 @@ void event_mode_changed(const monitor_measurement_t *data,
 }
 
 /* ===============================================================
- * Dispatch: Object Detection -> Event (module not built yet)
- * thnk of use the seperate blue and red led to that
+ * Dispatch: Object Detection -> Event
  * =============================================================== */
 
 void event_object_detected(void)
 {
-    led_red();
+
     Buzzer_StartSonar(g_event.buzzer);
+    SonarLed_Start(g_event.sonar_led);
     write_events_file("object detected");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_DETECTED, NULL, 0);
 }
 
 void event_object_cleared(void)
 {
-    led_green();
+
     Buzzer_Stop(g_event.buzzer);
+    SonarLed_Stop(g_event.sonar_led);
     write_events_file("object cleared");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_CLEARED, NULL, 0);
 }

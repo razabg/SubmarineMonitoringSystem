@@ -427,12 +427,32 @@ change an existing one without asking.
     would give Object Detection its own dedicated free-running
     microsecond timer instead (a spare one, e.g. `TIM6`, was already
     identified as available).
-  - **Not yet built: the breathing blue LED.** Hardware is configured
-    (`TIM8_CH4` PWM on `PC9`, `BLUE_LED_SONAR_Pin`, ~152.6 Hz base PWM
-    frequency) but no software drives it yet — same "periodic register
-    nudge from an interrupt" technique as the siren, sweeping duty cycle
-    instead of pitch, starting on `event_object_detected()` and stopping on
-    `event_object_cleared()`.
+  - **Breathing red LED — built, not yet hardware-tested.** Pin is
+    `RED_LED_SONAR_Pin` on `PC9` (renamed from an earlier `BLUE_LED_SONAR_Pin`
+    to match the actual LED color wired in).
+    `sonarled.c/.h` (new files): a `SonarLed` ADT, same static-singleton
+    shape as `Buzzer_Handle`, owned by Event (`g_event.sonar_led`,
+    created via `SonarLed_Create(&htim8, TIM_CHANNEL_4)` in
+    `event_create()`, alongside the Buzzer). Deliberately **task-driven,
+    not interrupt-driven** — unlike the siren/sonar sound, which reuses
+    `TIM3`'s own update interrupt for note timing, this fade is a slow
+    (2 s half-cycle), non-critical visual effect, and `TIM8` runs its PWM
+    at 10 kHz (`Prescaler=7`, `Period=999` — corrected from an earlier,
+    wrong `65535` assumption), far faster than driving a multi-second
+    fade from its own interrupt would need. So `SonarLed_Create()` starts
+    a small dedicated FreeRTOS task that wakes every 30 ms via
+    `osDelayUntil()` and nudges `TIM8`'s `CCR4` directly
+    (`__HAL_TIM_SET_COMPARE()`) up and down between 0 and 999 (a
+    triangle-wave sweep), idling (no register writes) whenever inactive.
+    `SonarLed_Start()`/`SonarLed_Stop()` just flip an `active` flag plus
+    start/stop the PWM channel itself
+    (`HAL_TIM_PWM_Start/Stop(&htim8, TIM_CHANNEL_4)`) — no NVIC/interrupt
+    configuration needed for `TIM8` at all, confirmed no conflict with
+    the two remaining modules (Keep-Alive, Watchdog), which per section 9
+    already use `osDelayUntil` with no hardware timer of their own.
+    Wired into `event_object_detected()`/`event_object_cleared()`
+    alongside the existing `Buzzer_StartSonar()`/`Buzzer_Stop()` calls.
+    Not yet confirmed on real hardware.
   - **Known, deliberately deferred bug: alarm/sonar buzzer contention.**
     The buzzer can only sound one thing at a time (real hardware
     constraint), and `Buzzer_StartAlarm()`/`Buzzer_StartSonar()` silently

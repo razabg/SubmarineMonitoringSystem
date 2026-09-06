@@ -98,8 +98,8 @@ void Error_Handler(void);
 #define RGB_BLUE_GPIO_Port GPIOB
 #define RGB_GREEN_Pin GPIO_PIN_15
 #define RGB_GREEN_GPIO_Port GPIOB
-#define BLUE_LED_SONAR_Pin GPIO_PIN_9
-#define BLUE_LED_SONAR_GPIO_Port GPIOC
+#define RED_LED_SONAR_Pin GPIO_PIN_9
+#define RED_LED_SONAR_GPIO_Port GPIOC
 #define BUTTON_D2_Pin GPIO_PIN_10
 #define BUTTON_D2_GPIO_Port GPIOA
 #define TMS_Pin GPIO_PIN_13
