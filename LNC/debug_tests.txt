@@ -1,0 +1,101 @@
+LNC firmware -- ad-hoc debug/test snippets, kept for future reuse
+===================================================================
+
+Not part of the build (lives outside Core/Src, no recognized source
+extension). Each block below was written into main.c for a specific
+one-off test, then removed once it had served its purpose. Copy the
+relevant block back into main.c's matching USER CODE section when the
+same kind of test is needed again.
+
+-------------------------------------------------------------------
+1) DS1307 one-time seed + readback print
+-------------------------------------------------------------------
+Purpose: manually write a known-correct date/time into the external
+DS1307 (its only way to learn real time, until the CC round-trip is
+live -- see CLAUDE.md's RTC section) and print it straight back so
+the console confirms the write actually took.
+
+Goes in main.c's "USER CODE BEGIN 2" section, right after
+HAL_TIM_Base_Start(&htim2);. Needs `#include "RTC_ds1307_I2C.h"` in
+main.c's Includes section.
+
+FOOTGUN: fill in the real current date/time before flashing (the
+values below are stale from the last time this was used -- 2026-09-06
+16:28). Flash once, confirm the printed readback, then remove this
+block again (or wrap it in `#if 0` / `#endif`) before the next flash --
+left enabled, it re-stamps the DS1307 with this same fixed value on
+every future boot, overwriting whatever correct time it built up
+since.
+
+  {
+      /* Sun 2026-09-06 16:28:00 -- Monday=1..Sunday=7 (dow=7=Sunday) */
+      RTC_Time_t seed = { .sec = 0, .min = 28, .hour = 16, .dow = 7,
+                           .date = 6, .month = 9, .year = 26 };
+      (void)RTC_SetTime(&hi2c3, &seed);
+
+      /* Readback, straight from the DS1307, so the console shows
+       * exactly what got stored -- confirms the write actually took. */
+      RTC_Time_t readback = {0};
+      if (RTC_GetTime(&hi2c3, &readback) == HAL_OK) {
+          printf("DS1307 seeded -> %02u/%02u/20%02u %02u:%02u:%02u (dow=%u)\r\n",
+                 readback.date, readback.month, readback.year,
+                 readback.hour, readback.min, readback.sec, readback.dow);
+      } else {
+          printf("DS1307 seed readback failed\r\n");
+      }
+  }
+
+-------------------------------------------------------------------
+2) Live RTC print every 2s
+-------------------------------------------------------------------
+Purpose: watch the internal RTC's time advance in real time on the
+console, to check it against a real clock for drift/correctness --
+used to diagnose the LSI-vs-real-time drift and the stale-DS1307-seed
+issue (see CLAUDE.md's RTC section for both).
+
+Function goes in main.c's "USER CODE BEGIN 0" section:
+
+  static void debug_print_rtc_task(void *argument)
+  {
+      (void)argument;
+      uint32_t tick = osKernelGetTickCount();
+
+      for (;;) {
+          RTC_TimeTypeDef t;
+          RTC_DateTypeDef d;
+
+          HAL_RTC_GetTime(&hrtc, &t, RTC_FORMAT_BIN);
+          HAL_RTC_GetDate(&hrtc, &d, RTC_FORMAT_BIN);
+          printf("RTC: 20%02u-%02u-%02u %02u:%02u:%02u\r\n",
+                 d.Year, d.Month, d.Date, t.Hours, t.Minutes, t.Seconds);
+
+          tick += 2000;
+          osDelayUntil(tick);
+      }
+  }
+
+Start call goes in main.c's "USER CODE BEGIN RTOS_THREADS" section,
+anywhere after init_create():
+
+  {
+      const osThreadAttr_t debug_rtc_task_attr = {
+          .name = "dbgRtcTask", .stack_size = 256 * 4, .priority = osPriorityNormal,
+      };
+      (void)osThreadNew(debug_print_rtc_task, NULL, &debug_rtc_task_attr);
+  }
+
+-------------------------------------------------------------------
+3) Flash config magic readback print
+-------------------------------------------------------------------
+Purpose: confirm Configuration's Flash persistence actually wrote/
+read back the expected magic value. Address must match
+CONFIG_FLASH_ADDR in config.c.
+
+Goes in main.c's "USER CODE BEGIN RTOS_THREADS" section, after
+init_create():
+
+  {
+      const uint32_t *stored = (const uint32_t *)0x080FF800U;
+      printf("Flash config magic: 0x%08lX (expect 0x434F4E46)\r\n",
+             (unsigned long)stored[0]);
+  }
