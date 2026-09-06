@@ -27,7 +27,7 @@ FRESULT SDFatFS_SaveData(const char *filename, const void *data, UINT len)
 
     fres = sd_mount();
     if (fres != FR_OK) {
-        printf("SD mount failed (%i)\r\n", fres);
+        // printf("SD mount failed (%i)\r\n", fres);
         return fres;
     }
 
@@ -35,7 +35,7 @@ FRESULT SDFatFS_SaveData(const char *filename, const void *data, UINT len)
        end if it already exists, so earlier saved data is kept intact. */
     fres = f_open(&s_fil, filename, FA_WRITE | FA_OPEN_APPEND);
     if (fres != FR_OK) {
-        printf("SD open failed (%i)\r\n", fres);
+        // printf("SD open failed (%i)\r\n", fres);
         sd_unmount();
         return fres;
     }
@@ -45,11 +45,11 @@ FRESULT SDFatFS_SaveData(const char *filename, const void *data, UINT len)
     sd_unmount();
 
     if (fres != FR_OK) {
-        printf("SD write failed (%i)\r\n", fres);
+        // printf("SD write failed (%i)\r\n", fres);
         return fres;
     }
 
-    printf("Wrote %u bytes to %s\r\n", written, filename);
+    // printf("Wrote %u bytes to %s\r\n", written, filename);
     return FR_OK;
 }
 
@@ -92,7 +92,7 @@ FRESULT SDFatFS_DeleteFile(const char *filename)
 
     fres = sd_mount();
     if (fres != FR_OK) {
-        printf("SD mount failed (%i)\r\n", fres);
+        // printf("SD mount failed (%i)\r\n", fres);
         return fres;
     }
 
@@ -100,11 +100,11 @@ FRESULT SDFatFS_DeleteFile(const char *filename)
     sd_unmount();
 
     if (fres != FR_OK) {
-        printf("SD delete failed (%i)\r\n", fres);
+        // printf("SD delete failed (%i)\r\n", fres);
         return fres;
     }
 
-    printf("Deleted %s\r\n", filename);
+    // printf("Deleted %s\r\n", filename);
     return FR_OK;
 }
 
