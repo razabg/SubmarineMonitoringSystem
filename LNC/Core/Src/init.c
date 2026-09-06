@@ -10,6 +10,7 @@
 #include "monitor.h"
 #include "objectdetection.h"
 #include "keepalive.h"
+#include "watchdog.h"
 #include "tlv.h"
 #include "RTC_ds1307_I2C.h"
 #include <stdbool.h>
@@ -203,6 +204,9 @@ Init *init_create(Communication *comm)
         return NULL;
     }
     if (keepalive_create(comm) == NULL) {
+        return NULL;
+    }
+    if (watchdog_create() == NULL) {
         return NULL;
     }
 

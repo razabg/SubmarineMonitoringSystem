@@ -49,6 +49,7 @@ extern TIM_HandleTypeDef htim5;
 extern TIM_HandleTypeDef htim8;
 extern RTC_HandleTypeDef hrtc;
 extern I2C_HandleTypeDef hi2c3;
+extern IWDG_HandleTypeDef hiwdg;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

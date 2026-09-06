@@ -29,7 +29,7 @@ none of the three general-purpose-timer-free periodic tasks need one.
 | `SPI1` | Log/Event (FatFS) | SD card, CS on `PB6` |
 | `USART2` | *contested* | Reserved exclusively for Communication per the transport rule, but Communication is still stubbed out (`communication_create()` commented out in `main.c`) — right now `printf` (via `syscalls.c`) is borrowing it for debug output. Once Communication is un-stubbed, that has to stop — only Communication may touch `huart2`. |
 | `RTC` (internal) | Monitor/Event/Log timestamps | Currently clocked from `LSI` (poor accuracy, ~±5%, source of a known drift issue) — `LSE` is pin-locked (`PC14`/`PC15`) but not yet enabled in `RCC_OscInitStruct`/`RTCClockSelection` |
-| `IWDG` | — (pending, for Watchdog) | Not configured at all yet — `init.c` only reads the passive `RCC_FLAG_IWDGRST` reset-cause flag, which needs no IWDG setup |
+| `IWDG` | Watchdog | Refresh-only from software (`watchdog.c`, `osDelayUntil` every 1000ms) — `HAL_IWDG_Init()` (in CubeMX-generated `MX_IWDG_Init()`) both configures and starts the countdown. **Not yet activated in the `.ioc`** — needs enabling in CubeMX (System Core → IWDG) with timeout ~4000ms before `watchdog.c` will link (`hiwdg` doesn't exist until then). `init.c` separately reads the passive `RCC_FLAG_IWDGRST` reset-cause flag, which needs no IWDG setup and works regardless. |
 | EXTI | Event | `PB10` (line 10, shared `EXTI15_10`) = IR receiver; `PB3` (line 3, own vector) = button. No other lines used. |
 
 ## Plain GPIO
