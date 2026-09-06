@@ -336,6 +336,115 @@ change an existing one without asking.
   real fix (probably detecting the swap and clearing `Stat`, or forcing
   `disk_initialize()` again) before relying on hot-swapping the card during
   testing or operation.
+- **Known open issue, not yet fixed: `DHT11.c`'s read is fully blocking.**
+  `DHT_Read()` bit-bangs the single-wire protocol via busy-wait polling
+  loops timed against `TIM2` (`delay_us()`, `wait_for_response()`,
+  `read_bit()` x40) — no `osDelay()` or yielding anywhere in the file. The
+  18ms start-signal hold alone plus 40 bits at up to ~150us each adds up to
+  roughly 20-25ms of the CPU doing nothing else, every time `monitor_task()`
+  calls it. Hardware interrupts aren't masked anywhere in this code, so
+  ISR-driven things (Object Detection's EXTI, the buzzer's TIM3) are
+  unaffected — the real cost is that other **tasks** at Monitor's priority
+  or lower only get scheduled in via FreeRTOS's tick-based time-slicing
+  during that window, not freely. Likely tolerable given this project's
+  other timing is all second-scale (5s Monitor rounds, 10s presence
+  timeout), but that's incidental, not a real fix. Not addressed yet —
+  would need converting the polling into something that yields
+  periodically, or moving the bit-timing onto a hardware capture mechanism
+  instead of software polling.
+- **Object Detection status (as of 2026-09-06):**
+  - **Built, wired, and confirmed working on hardware, SD card installed**:
+    `objectdetection.c/.h` (the presence state machine — EXTI edge on `PB10`
+    resets TIM5's 10 s countdown via a direct register write from the ISR,
+    ISR-safe; a dedicated task, woken via `osThreadFlagsSet()`, does the
+    actual `event_object_detected()`/`event_object_cleared()` calls, since
+    those touch the SD card through FatFS and can't run in interrupt
+    context — same reasoning ruled out calling `osTimerStart()` from the
+    ISR too, confirmed by reading the actual `cmsis_os2.c`, which
+    explicitly errors out if called from an ISR). Wired into
+    `init_create()` alongside the other modules. `TIM5` NVIC/MSP/vector
+    fully enabled; `PB10` is `GPIO_MODE_IT_RISING_FALLING`.
+  - **Sonar sound built**: `Buzzer_StartSonar()` in `buzzer.c`/`.h` — a
+    "ping ... ping ... ping" pattern (150 ms `NOTE_C2`, 850 ms silence,
+    repeating), distinct from the alarm's continuous siren. The silent gap
+    is timed by setting the duty cycle to 0 rather than stopping the timer,
+    so the same interrupt keeps timing it. Wired into
+    `event_object_detected()`/`event_object_cleared()`.
+  - **Noise problem (SD card's SPI traffic triggering false detections)
+    root-caused and solved in software**, after a decoupling capacitor and
+    physical re-wiring weren't options (no spare parts/tools on hand).
+    Fix is two layers in `objdet_on_edge()`, both required:
+    1. **Speed rejection** (`MIN_EDGE_SPACING_US = 300`): an edge arriving
+       less than 300us after the previous *accepted* one is discarded
+       outright — SPI toggles at MHz rates (sub-microsecond), while a
+       VS1838B's demodulated output can't physically change faster than
+       ~562us (NEC's shortest real pulse element). Timestamped via `TIM2`
+       (already a free-running 1us counter for DHT11), since
+       `HAL_GetTick()`'s 1ms resolution can't tell these apart.
+    2. **Burst confirmation** (`BURST_WINDOW_MS = 60`, `BURST_THRESHOLD =
+       50`): requires 50 speed-filtered edges within 60ms before accepting
+       a detection as real. Critically, this check applies whether or not
+       `present` is already `true` — the first version of this fix only
+       gated the *initial* detection this way but still reset TIM5
+       unconditionally on any speed-filtered edge, so routine 5 s SD
+       writes (each producing ~8-14 accepted-but-sparse edges — enough to
+       clear the speed filter, not enough to be a real signal) kept
+       refreshing the 10 s countdown forever and permanently stuck
+       `present` at `true` after the first false trigger. Gating the
+       *refresh* on the same burst proof fixed it. `BURST_THRESHOLD` was
+       raised from 20 to 50 after a confirmed false positive at
+       `burst_edge_count=21` (via a temporary debug print in
+       `objdet_task()`, tick well past boot so not a startup artifact) —
+       routine SD-write noise typically tops out around 8-14 edges but was
+       observed spiking to 21 on at least one occasion, leaving 20 too
+       thin a margin; a real click reliably produces 200+, so 50 leaves
+       comfortable room on both sides.
+    This is a heuristic, not real NEC protocol decoding — it is not
+    mathematically guaranteed against noise that happens to be both
+    correctly-timed *and* dense, but has been confirmed reliable across
+    repeated real-hardware tests with the SD card installed and writing
+    on its normal schedule throughout, including a clean 10-minute
+    soak test at `BURST_THRESHOLD=50` with zero false positives and
+    correct detection on every real remote click. Temporary debug
+    prints (`objdet: DETECTED`/`cleared` in `objdet_task()`, and the
+    earlier `edge_isr_count`/heartbeat instrumentation) have all been
+    removed now that this is confirmed.
+  - **Found and fixed a second bug causing rarer, ~4-5 min-interval false
+    positives even after the burst filter above**: `TIM2` is shared with
+    `DHT11.c`'s bit-banging, which zeroes it ~85 times during every 5 s
+    Monitor round (`delay_us()`'s `__HAL_TIM_SET_COUNTER(h->timer, 0)`).
+    Since `objdet_on_edge()` also reads `TIM2` for its speed-rejection
+    check, a DHT11 reset landing between two IR edges made the unsigned
+    subtraction `now_us - last_edge_us` underflow into a huge number —
+    which looks "properly spaced" (i.e. passes the >=300us check) instead
+    of the correct "impossibly fast, reject it." Fixed in `objdet_on_edge()`
+    by detecting `now_us < last_edge_us` (only possible if the clock was
+    reset out from under it) and treating that edge as untrustworthy
+    rather than accepting it, while still recording it as the new
+    baseline so the next edge measures correctly. `TIM2` remains shared
+    with DHT11 -- this patches the specific symptom, it doesn't remove
+    the underlying shared-timer conflict. A cleaner (not yet done) fix
+    would give Object Detection its own dedicated free-running
+    microsecond timer instead (a spare one, e.g. `TIM6`, was already
+    identified as available).
+  - **Not yet built: the breathing blue LED.** Hardware is configured
+    (`TIM8_CH4` PWM on `PC9`, `BLUE_LED_SONAR_Pin`, ~152.6 Hz base PWM
+    frequency) but no software drives it yet — same "periodic register
+    nudge from an interrupt" technique as the siren, sweeping duty cycle
+    instead of pitch, starting on `event_object_detected()` and stopping on
+    `event_object_cleared()`.
+  - **Known, deliberately deferred bug: alarm/sonar buzzer contention.**
+    The buzzer can only sound one thing at a time (real hardware
+    constraint), and `Buzzer_StartAlarm()`/`Buzzer_StartSonar()` silently
+    cancel each other. Worse, `event.c`'s own `g_event.alarm_active`
+    bookkeeping (managed by the separate `alarm_start()`/
+    `alarm_stop_if_active()` helpers) doesn't know when Object Detection's
+    sonar has silently interrupted-then-stopped an active Error alarm, so
+    it can desync from Buzzer's actual state (Event still thinks the alarm
+    is sounding when the buzzer has actually gone silent). Not fixed —
+    needs a real decision (should Error mode take priority and auto-resume
+    once Object Detection lets go, or should Object Detection refuse to
+    interrupt an active alarm at all).
 - Whether the alarm restarts if a new event arrives after the button stopped it.
 - Object Detection hardware: a VS1838B IR remote-control receiver used as a demo
   stand-in (point a remote at it and press buttons to simulate an object present) —
@@ -678,9 +787,9 @@ without waiting for Communication to be live) — done: **Monitor**,
 2. **Keep-Alive** — 6 s timer sending timestamp + latest measurement + mode
    through Communication. Small, and mostly blocked on Communication being
    live to actually observe it.
-3. **Object Detection** — IR sensor (VS1838B) presence-timeout logic (see
-   its own bullet above), needs Event but nothing else. Needs its own
-   distinct sonar-style buzzer sound, not Event's Error-mode alarm siren.
+3. **Object Detection** — in progress, see section 7's status note for
+   exactly where this stands (state machine + sonar sound built and
+   correctness-confirmed; breathing LED and buzzer contention still open).
 4. **Watchdog** — deliberately saved for last. Refresh on schedule; Init
    already handles reporting whether the last boot was a WD reset (built
    ahead of Watchdog itself, reading the passive `RCC_FLAG_IWDGRST` flag,

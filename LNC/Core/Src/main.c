@@ -189,8 +189,6 @@ int main(void)
   /* Create the thread(s) */
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-  HAL_GPIO_WritePin(BLUE_LED_SONAR_GPIO_Port, BLUE_LED_SONAR_Pin, GPIO_PIN_SET);
-  osDelay(2000);
 
   /* USER CODE BEGIN RTOS_THREADS */
 //  g_comm = communication_create();
