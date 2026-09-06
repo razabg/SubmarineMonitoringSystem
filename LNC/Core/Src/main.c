@@ -172,10 +172,10 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-//  g_comm = communication_create();
-//  if (g_comm == NULL) {
-//      Error_Handler();
-//  }
+  g_comm = communication_create();
+  if (g_comm == NULL) {
+      Error_Handler();
+  }
 //
 //  {
 //      uint8_t dummy_payload[1] = { 0 };

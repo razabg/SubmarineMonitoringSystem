@@ -9,6 +9,7 @@
 #include "config.h"
 #include "monitor.h"
 #include "objectdetection.h"
+#include "keepalive.h"
 #include "tlv.h"
 #include "RTC_ds1307_I2C.h"
 #include <stdbool.h>
@@ -199,6 +200,9 @@ Init *init_create(Communication *comm)
         return NULL;
     }
     if (objdet_create() == NULL) {
+        return NULL;
+    }
+    if (keepalive_create(comm) == NULL) {
         return NULL;
     }
 

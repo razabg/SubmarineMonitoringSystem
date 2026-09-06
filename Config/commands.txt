@@ -1,0 +1,1 @@
+ls -la /dev/ttyACM* to check to current node that board got.
