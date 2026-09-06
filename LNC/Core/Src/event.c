@@ -24,6 +24,7 @@ struct Event {
     Buzzer_Handle *buzzer;
     SonarLed *sonar_led;
     bool alarm_active;
+    bool sonar_active;
     bool essential_only;
 };
 
@@ -45,6 +46,7 @@ Event *event_create(Communication *comm)
         return NULL;
     }
     g_event.alarm_active = false;
+    g_event.sonar_active = false;
     g_event.essential_only = false;
     return &g_event;
 }
@@ -111,6 +113,17 @@ static void alarm_stop_if_active(void)
     if (g_event.alarm_active) {
         Buzzer_Stop(g_event.buzzer);
         g_event.alarm_active = false;
+    }
+}
+
+/* Silences the sonar ping (button press), but leaves the breathing LED
+ * on -- same split as the alarm above: the button stops the *sound*,
+ * the object is still present until a real clear arrives. */
+static void sonar_stop_if_active(void)
+{
+    if (g_event.sonar_active) {
+        Buzzer_Stop(g_event.buzzer);
+        g_event.sonar_active = false;
     }
 }
 
@@ -205,6 +218,7 @@ void event_object_detected(void)
 {
 
     Buzzer_StartSonar(g_event.buzzer);
+    g_event.sonar_active = true;
     SonarLed_Start(g_event.sonar_led);
     write_events_file("object detected");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_DETECTED, NULL, 0);
@@ -214,6 +228,7 @@ void event_object_cleared(void)
 {
 
     Buzzer_Stop(g_event.buzzer);
+    g_event.sonar_active = false;
     SonarLed_Stop(g_event.sonar_led);
     write_events_file("object cleared");
     (void)comm_send(g_event.comm, TLV_TAG_OBJECT_CLEARED, NULL, 0);
@@ -248,6 +263,7 @@ void event_startup(bool was_watchdog_reset)
 void event_button_pressed(void)
 {
     alarm_stop_if_active();
+    sonar_stop_if_active();
 }
 
 /* The NVIC vector (EXTI3_IRQHandler) is CubeMX-generated in

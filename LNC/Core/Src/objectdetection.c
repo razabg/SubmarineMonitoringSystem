@@ -64,7 +64,7 @@ static struct ObjectDetection g_objdet;
  * the SD card.
  * =============================================================== */
 
-void objdet_on_edge(void)
+void objdet_on_edge(void) //called form HAL_GPIO_EXTI_Callback() in events.c
 {
     uint32_t now_us;
     uint32_t now_tick;
@@ -119,7 +119,7 @@ void objdet_on_edge(void)
     }
 }
 
-void objdet_on_timeout(void)
+void objdet_on_timeout(void) //called form HAL_TIM_PeriodElapsedCallback() in buzzer.c
 {
     (void)osThreadFlagsSet(g_objdet.task_handle, OBJDET_FLAG_TIMEOUT);
 }

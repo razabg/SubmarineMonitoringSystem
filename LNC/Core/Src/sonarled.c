@@ -1,5 +1,5 @@
 /*
- * sonarled.c - LNC Object Detection breathing blue LED
+ * sonarled.c - LNC Object Detection breathing red LED
  * See sonarled.h for the public API and the design overview.
  */
 #include "sonarled.h"

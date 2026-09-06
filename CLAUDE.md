@@ -427,7 +427,7 @@ change an existing one without asking.
     would give Object Detection its own dedicated free-running
     microsecond timer instead (a spare one, e.g. `TIM6`, was already
     identified as available).
-  - **Breathing red LED — built, not yet hardware-tested.** Pin is
+  - **Breathing red LED — built and confirmed working on hardware.** Pin is
     `RED_LED_SONAR_Pin` on `PC9` (renamed from an earlier `BLUE_LED_SONAR_Pin`
     to match the actual LED color wired in).
     `sonarled.c/.h` (new files): a `SonarLed` ADT, same static-singleton
@@ -452,7 +452,7 @@ change an existing one without asking.
     already use `osDelayUntil` with no hardware timer of their own.
     Wired into `event_object_detected()`/`event_object_cleared()`
     alongside the existing `Buzzer_StartSonar()`/`Buzzer_Stop()` calls.
-    Not yet confirmed on real hardware.
+    Confirmed working on real hardware.
   - **Known, deliberately deferred bug: alarm/sonar buzzer contention.**
     The buzzer can only sound one thing at a time (real hardware
     constraint), and `Buzzer_StartAlarm()`/`Buzzer_StartSonar()` silently
