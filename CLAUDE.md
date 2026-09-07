@@ -503,10 +503,144 @@ change an existing one without asking.
   send path drops/refuses to queue `TLV_TAG_DATA_REPORT` frames while it's true,
   leaving keep-alive and events unaffected — matches Communication's own existing
   priority tiers (2.5: keep-alive > events > data reports), so "non-essential"
-  == the lowest tier. Deferred until Communication is un-stubbed for real
-  (`communication_create()` is still commented out in `main.c`) and something
-  actually sends `TLV_TAG_DATA_REPORT`, so this has real traffic to gate instead
-  of an untestable guess.
+  == the lowest tier. Deferred until something actually sends
+  `TLV_TAG_DATA_REPORT`, so this has real traffic to gate instead of an
+  untestable guess. (Communication itself is live now — `communication_create()`
+  is no longer stubbed out.)
+- **Section 2.5's two "Instructions received" — "get measurement data for a
+  time range" / "get events for a time range" — now implemented.**
+  `TLV_TAG_QUERY_DATA` routes to `log_on_frame()` (`log.c`), `TLV_TAG_QUERY_EVENTS`
+  routes to `event_on_frame()` (`event.c`) — replacing the single `query_on_frame()`
+  stub that used to handle both. Both use an identical provisional
+  `query_range_payload_t` request format (12 bytes: start+end, each
+  year/month/date/hour/min/sec — year is an offset from 2000, same convention
+  as `time_payload_t`/`keepalive_payload_t`), duplicated locally in each file
+  per this codebase's own convention rather than a shared header.
+  - **Design choice: `TLV_TAG_QUERY_RECORD` forwards the whole matching
+    stored line as-is**, not a re-encoded binary struct — Log's/Event's
+    stored lines (`LOG1..7.TXT`, `EVENTS.TXT`) are already complete,
+    self-describing text (`"[2026-09-06 14:30:00] temp=25C hum=64% ..."`),
+    so re-parsing them into a separate binary shape would be pure extra
+    complexity for no benefit. This is why `COMM_MAX_VALUE` in
+    `communication.c` was raised from 32 to 96 bytes — worst observed line
+    (a mode-change event) is ~87 bytes.
+  - Matching is done by parsing each line's own `[timestamp]` prefix back
+    into six fields (`sscanf`) and packing both the request's range and
+    the line's timestamp into one comparable `uint64_t`
+    (`year*100+month, *100+date, ...` chained) rather than six separate
+    field comparisons.
+  - `SDFatFS_ForEachLine()` (new, in `sdfatfs.c`/`.h`) generalizes the
+    existing `SDFatFS_PrintFile()` read loop to hand each line to a
+    caller-supplied callback instead of always `printf`-ing it.
+  - `log_on_frame()` searches **all 7** `LOG1..7.TXT` slots unconditionally
+    on every `QUERY_DATA` — slots are keyed by weekday, not calendar date,
+    and get overwritten every 7 days, so there's no reliable way to know
+    which calendar dates a given slot currently holds without just reading
+    it (`FR_NO_FILE` for an unused slot is an expected outcome, not an
+    error).
+  - `log_create()`'s signature changed to `log_create(Communication *comm)`
+    (was `log_create(void)`) — needed a `comm` handle to reply, matching
+    `event_create()`'s existing shape. `init.c`'s call site updated.
+  - **Hardware-tested via `comm_test.cpp`'s new interactive query-send
+    feature** (press Enter to fire both `QUERY_DATA`/`QUERY_EVENTS` with
+    the widest possible range) — and this surfaced a real bug, now
+    fixed: `comm_rx_task`'s stack (`communication.c`, `256 * 4` = 1024
+    bytes) was sized for the old, shallow frame-routing handlers
+    (a Flash read, an RTC call). `log_on_frame()`/`event_on_frame()`
+    run **on that same task** (`comm_rx_task` → `comm_route_frame` →
+    `log_on_frame` → `SDFatFS_ForEachLine` → FatFS internals →
+    the per-line callback → `sscanf` → `comm_send`), a much deeper
+    call chain than anything this task previously did, including a
+    128-byte line buffer and a now-98-byte `comm_tx_item_t` (grown
+    from 34 bytes when `COMM_MAX_VALUE` went 32→96 for this same
+    feature). Confirmed as an actual stack overflow, not a sensor
+    glitch: right after sending a test query, one Monitor round
+    reported `mode=255` (`(uint8_t)MODE_UNKNOWN`, `monitor.c`'s
+    just-booted sentinel value) with every measurement field zeroed —
+    `struct Monitor`'s entire state had been reset to its
+    `monitor_create()`-time initial values, then self-corrected on the
+    very next round. A real sensor fault can't also reset Monitor's
+    own internal state; only something overwriting `g_monitor`'s
+    memory out from under it explains both symptoms together — the
+    classic signature of a stack overflow corrupting adjacent static
+    memory. Fixed by raising `rx_task_attr.stack_size` to `256 * 16`
+    (4096 bytes, 4x). `comm_tx_task` (which calls `tlv_encode()` with
+    a 261-byte `TLV_MAX_FRAME` buffer, but no comparably deep call
+    chain) was left at `256 * 4` — not implicated, no symptom observed
+    there.
+  - **A second, independent bug found the same way, via `EVENTS.TXT`'s
+    own history after the stack fix**: a `mode UNKNOWN -> ERROR
+    (temp=0C hum=0%)` line with no boot event anywhere near it (Monitor
+    had already produced several good readings since the last real
+    boot) — same corruption signature as above, but this time with no
+    stack overflow to blame. Root cause: `sdfatfs.c`'s `s_fs`/`s_fil`
+    are shared static state with **no locking**, safe only as long as
+    every caller was serialized onto one task by happenstance — which
+    stopped being true the moment `log_on_frame()`/`event_on_frame()`
+    started calling into this module from Communication's own RX task
+    while Monitor/Log/Event keep writing from their own independent
+    task schedules. Two tasks can now genuinely call in at the same
+    time. **Fixed**: added `s_sd_lock` (an `osMutexId_t`), acquired at
+    the top of every public function in `sdfatfs.c` and released before
+    every return path. New `SDFatFS_Init()` creates it — called once
+    from `main.c`'s `RTOS_THREADS` section (needs `osKernelInitialize()`
+    to have already run, same requirement `communication_create()`'s
+    queues/semaphores already follow — an `osMutexNew()` call placed
+    any earlier, e.g. in `USER CODE BEGIN 2`, would be wrong), before
+    `communication_create()`/`init_create()`, since `init_create()`
+    itself writes to `EVENTS.TXT` via `event_startup()`.
+  - **Correction found after the mutex fix, via a clean-SD-card test with
+    no query ever sent**: the corruption still happened (`g_monitor`
+    reset to its just-booted state ~27s after boot — same signature,
+    confirmed by a paired `TLV_TAG_MODE_CHANGE UNKNOWN -> ERROR` frame,
+    with `light`/`battery` also reading exactly 0%, which real ADC
+    values never do). Since no query was ever sent, `log_on_frame()`/
+    `event_on_frame()` never ran and `comm_rx_task` was never involved
+    — proving the stack-overflow and the missing-mutex fixes above,
+    while real bugs worth having fixed, were **not** this bug's actual
+    root cause; they'd just coincided with the only sessions that
+    exercised the system hard enough to trigger it. **Real root cause**:
+    `monitor.c`'s own task stack (`256 * 4` = 1024 bytes) was never
+    adjusted, and Monitor's task is the deepest one in the firmware on
+    a mode-change round — `monitor_task()` calls both `log_write()` (its
+    own SD-card write) and `event_mode_changed()`, which does a *second*
+    SD-card write (`write_events_file()`) and calls `comm_send()` (now a
+    98-byte `comm_tx_item_t`, same `COMM_MAX_VALUE` growth as before) —
+    all nested on top of DHT11's bit-banging locals, two ADC reads, and
+    several `snprintf` line buffers. Fixed by raising
+    `monitor_create()`'s `stack_size` to `256 * 16` (4096 bytes), same
+    target as `comm_rx_task`. `objectdetection.c`'s task has the same
+    risk profile (`event_object_detected()`/`cleared()` also do a full
+    SD write plus `comm_send()`) and was bumped the same way.
+    `keepalive.c`'s task doesn't touch the SD card but does call
+    `comm_send()`, so it was bumped too (`256 * 8`, lower risk, cheap
+    precaution). `watchdog.c` only calls `HAL_IWDG_Refresh()` — no
+    `comm_send()`, no SD access, genuinely shallow — left at `256 * 4`.
+    **Confirmed fixed on hardware**: with all four stack bumps plus the
+    SD-card mutex in place, `g_monitor` corruption has not recurred
+    across multiple clean-SD-card boots, several minutes of steady
+    running, and a full `QUERY_DATA`/`QUERY_EVENTS` round trip.
+  - **A fifth thing this surfaced, not a new bug**: raising four task
+    stacks by several KB each pushed total dynamic RAM demand past
+    `configTOTAL_HEAP_SIZE` (`FreeRTOSConfig.h`, was `16000` bytes,
+    `heap_4.c`) — CMSIS-RTOS2 allocates every task's stack *from* that
+    one shared heap (`pvPortMalloc()`), not as separate reserved memory,
+    so growing several stacks at once is a real hit against the same
+    budget everything else (queues, semaphores, mutexes) draws from too.
+    Total task-stack demand alone reached ~17.9KB, already over budget
+    before counting anything else. Symptom on hardware matched exactly:
+    a ~17-minute run of `startup (watchdog reset: yes)` events every
+    4-21 seconds — some `_create()` call's `pvPortMalloc()` returning
+    `NULL`, hitting `Error_Handler()`'s infinite loop *before*
+    `osKernelStart()` ever ran, so Watchdog's task never started
+    refreshing IWDG and it kept timing out (~4.096s) and forcing a
+    reset, repeatedly. **Fixed**: `configTOTAL_HEAP_SIZE` raised to
+    28000 bytes (confirmed safe — the L476RG has 96KB of `SRAM1` where
+    all of `.data`/`.bss`/this heap/the main-ISR-stack live, per
+    `STM32L476RGTX_FLASH.ld`; even after this increase, ~59KB of `SRAM1`
+    remains free, plus an entirely untouched 32KB `SRAM2` region this
+    project doesn't use). Confirmed on hardware: the reset loop stopped
+    the moment this was reflashed, and the board has run clean since.
 
 If a decision is found in the code, add it to this list as a short line so the next
 session does not have to go looking for it.

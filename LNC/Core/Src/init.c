@@ -191,7 +191,7 @@ Init *init_create(Communication *comm)
     event_startup(was_wd_reset);
     (void)comm_send(g_init.comm, TLV_TAG_TIME_SYNC_REQUEST, NULL, 0);
 
-    if (log_create() == NULL) {
+    if (log_create(comm) == NULL) {
         return NULL;
     }
     if (config_create() == NULL) {
