@@ -16,6 +16,7 @@
 #include "sonarled.h"
 #include "objectdetection.h"
 #include <stdio.h>
+#include <string.h>
 
 #define EVENTS_FILENAME "EVENTS.TXT"
 
@@ -304,4 +305,96 @@ void HAL_GPIO_EXTI_Callback(uint16_t gpio_pin)
 bool event_is_essential_only(void)
 {
     return g_event.essential_only;
+}
+
+/* ===============================================================
+ * Dispatch: Communication -> Event (TLV_TAG_QUERY_EVENTS, section 2.5)
+ *
+ * Provisional wire format -- same shape as log.c's identical
+ * query_range_payload_t (duplicated locally per this codebase's own
+ * convention -- see mode_change_payload_t/time_payload_t -- rather
+ * than a shared header for one small struct).
+ * =============================================================== */
+
+typedef struct __attribute__((packed)) {
+    uint8_t start_year, start_month, start_date, start_hour, start_min, start_sec;
+    uint8_t end_year, end_month, end_date, end_hour, end_min, end_sec;
+} query_range_payload_t;
+
+/* Same packing scheme as log.c's timestamp_key() -- see there for why
+ * a single comparable integer instead of six field comparisons. */
+static uint64_t timestamp_key(uint8_t year, uint8_t month, uint8_t date,
+                               uint8_t hour, uint8_t min, uint8_t sec)
+{
+    uint64_t k = year;
+    k = k * 100u + month;
+    k = k * 100u + date;
+    k = k * 100u + hour;
+    k = k * 100u + min;
+    k = k * 100u + sec;
+    return k;
+}
+
+/* Parses the "[2026-09-06 14:30:00]" prefix write_events_file() itself
+ * generates back into its six fields -- same approach as log.c's
+ * parse_line_timestamp(). */
+static bool parse_line_timestamp(const char *line, uint64_t *out_key)
+{
+    unsigned year, month, date, hour, min, sec;
+
+    if (sscanf(line, "[20%2u-%2u-%2u %2u:%2u:%2u]",
+               &year, &month, &date, &hour, &min, &sec) != 6) {
+        return false;
+    }
+    *out_key = timestamp_key((uint8_t)year, (uint8_t)month, (uint8_t)date,
+                              (uint8_t)hour, (uint8_t)min, (uint8_t)sec);
+    return true;
+}
+
+typedef struct {
+    uint64_t start_key;
+    uint64_t end_key;
+    Communication *comm;
+} query_events_ctx_t;
+
+/* SDFatFS_ForEachLine() callback -- forwards the whole matching line
+ * as-is, same reasoning as log.c's query_data_line_cb(): the stored
+ * data is already a complete, self-describing text line, so there's
+ * nothing to gain from re-encoding it into a separate binary struct. */
+static void query_events_line_cb(const char *line, void *ctx)
+{
+    query_events_ctx_t *c = (query_events_ctx_t *)ctx;
+    uint64_t key;
+
+    if (!parse_line_timestamp(line, &key)) {
+        return;
+    }
+    if (key < c->start_key || key > c->end_key) {
+        return;
+    }
+    (void)comm_send(c->comm, TLV_TAG_QUERY_RECORD,
+                     (const uint8_t *)line, (uint8_t)strlen(line));
+}
+
+void event_on_frame(const tlv_frame_t *f)
+{
+    query_events_ctx_t ctx;
+    const query_range_payload_t *p;
+
+    if (f == NULL || f->value == NULL || f->len != sizeof(query_range_payload_t)) {
+        return;
+    }
+    p = (const query_range_payload_t *)f->value;
+
+    ctx.comm = g_event.comm;
+    ctx.start_key = timestamp_key(p->start_year, p->start_month, p->start_date,
+                                   p->start_hour, p->start_min, p->start_sec);
+    ctx.end_key = timestamp_key(p->end_year, p->end_month, p->end_date,
+                                 p->end_hour, p->end_min, p->end_sec);
+
+    /* EVENTS.TXT is a single flat file, never rotated, so unlike Log
+     * there's only ever one file to search. */
+    (void)SDFatFS_ForEachLine(EVENTS_FILENAME, query_events_line_cb, &ctx);
+
+    (void)comm_send(g_event.comm, TLV_TAG_QUERY_END, NULL, 0);
 }

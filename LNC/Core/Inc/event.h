@@ -23,6 +23,7 @@
 #include <stdbool.h>
 #include "monitor.h"
 #include "communication.h"
+#include "tlv.h"
 
 typedef struct Event Event;
 /* Opaque handle -- fields live only in event.c. */
@@ -61,5 +62,13 @@ void event_button_pressed(void);
  * true from any -> Error until the next Error -> Warning/Normal. Nothing
  * reads this yet; here for whichever module needs to check it later. */
 bool event_is_essential_only(void);
+
+/* Communication -> Event: TLV_TAG_QUERY_EVENTS, "events in a time
+ * range" (section 2.5). Searches EVENTS.TXT for lines whose embedded
+ * timestamp falls in the requested range, replying with one
+ * TLV_TAG_QUERY_RECORD per match (the whole matching line, forwarded
+ * as-is) followed by one TLV_TAG_QUERY_END. Signature matches the weak
+ * stub already declared in communication.c, overriding it at link time. */
+void event_on_frame(const tlv_frame_t *f);
 
 #endif /* EVENT_H */

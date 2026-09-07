@@ -89,9 +89,13 @@ static void keepalive_task(void *argument)
 
 KeepAlive *keepalive_create(Communication *comm)
 {
+    /* No SD-card write on this task (unlike Monitor/ObjectDetection),
+     * but comm_send()'s comm_tx_item_t is still 98 bytes now (grown
+     * from 34 when COMM_MAX_VALUE went 32->96) -- bumped as a cheap
+     * precaution, same reasoning as monitor.c's stack fix. */
     const osThreadAttr_t task_attr = {
         .name = "keepAliveTask",
-        .stack_size = 256 * 4,
+        .stack_size = 256 * 8,
         .priority = osPriorityNormal,
     };
 

@@ -1,14 +1,31 @@
 #include "sdfatfs.h"
+#include "cmsis_os.h"
 #include <string.h>
 #include <stdio.h>
 
 /* FATFS and FIL each carry a 512-byte sector buffer (_MAX_SS in ffconf.h),
    so keeping them as plain locals overflows a normal RTOS task stack the
    moment these functions are entered. Static storage keeps them off the
-   stack entirely - safe here since this module only ever has one volume
-   mounted and one file open at a time. */
+   stack entirely.
+
+   That static storage is shared, mutable state -- originally safe because
+   every caller was on the same task (Monitor/Event/Log all wrote from
+   their own task context, serialized by nothing but happenstance). That
+   stopped being true once TLV_TAG_QUERY_DATA/QUERY_EVENTS started calling
+   into this module from Communication's own RX task (log_on_frame()/
+   event_on_frame()) while Monitor's/Event's tasks keep writing on their
+   own independent schedules -- two tasks can now genuinely call into here
+   at the same time. s_sd_lock below serializes every public function in
+   this file so only one caller ever touches s_fs/s_fil at once, regardless
+   of which task it's calling from. */
 static FATFS s_fs;
 static FIL s_fil;
+static osMutexId_t s_sd_lock;
+
+void SDFatFS_Init(void)
+{
+    s_sd_lock = osMutexNew(NULL);
+}
 
 static FRESULT sd_mount(void)
 {
@@ -25,9 +42,12 @@ FRESULT SDFatFS_SaveData(const char *filename, const void *data, UINT len)
     UINT written;
     FRESULT fres;
 
+    osMutexAcquire(s_sd_lock, osWaitForever);
+
     fres = sd_mount();
     if (fres != FR_OK) {
         // printf("SD mount failed (%i)\r\n", fres);
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
@@ -37,12 +57,14 @@ FRESULT SDFatFS_SaveData(const char *filename, const void *data, UINT len)
     if (fres != FR_OK) {
         // printf("SD open failed (%i)\r\n", fres);
         sd_unmount();
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
     fres = f_write(&s_fil, data, len, &written);
     f_close(&s_fil);
     sd_unmount();
+    osMutexRelease(s_sd_lock);
 
     if (fres != FR_OK) {
         // printf("SD write failed (%i)\r\n", fres);
@@ -63,9 +85,12 @@ FRESULT SDFatFS_PrintFile(const char *filename)
     char line[128];
     FRESULT fres;
 
+    osMutexAcquire(s_sd_lock, osWaitForever);
+
     fres = sd_mount();
     if (fres != FR_OK) {
         printf("SD mount failed (%i)\r\n", fres);
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
@@ -73,6 +98,7 @@ FRESULT SDFatFS_PrintFile(const char *filename)
     if (fres != FR_OK) {
         printf("SD open failed (%i)\r\n", fres);
         sd_unmount();
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
@@ -83,6 +109,41 @@ FRESULT SDFatFS_PrintFile(const char *filename)
 
     f_close(&s_fil);
     sd_unmount();
+    osMutexRelease(s_sd_lock);
+    return FR_OK;
+}
+
+FRESULT SDFatFS_ForEachLine(const char *filename, SDFatFS_LineCallback cb, void *ctx)
+{
+    char line[128];
+    FRESULT fres;
+
+    osMutexAcquire(s_sd_lock, osWaitForever);
+
+    fres = sd_mount();
+    if (fres != FR_OK) {
+        osMutexRelease(s_sd_lock);
+        return fres;
+    }
+
+    fres = f_open(&s_fil, filename, FA_READ);
+    if (fres != FR_OK) {
+        sd_unmount();
+        osMutexRelease(s_sd_lock);
+        return fres;
+    }
+
+    while (f_gets(line, sizeof(line), &s_fil)) {
+        size_t len = strlen(line);
+        while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+            line[--len] = '\0';
+        }
+        cb(line, ctx);
+    }
+
+    f_close(&s_fil);
+    sd_unmount();
+    osMutexRelease(s_sd_lock);
     return FR_OK;
 }
 
@@ -90,14 +151,18 @@ FRESULT SDFatFS_DeleteFile(const char *filename)
 {
     FRESULT fres;
 
+    osMutexAcquire(s_sd_lock, osWaitForever);
+
     fres = sd_mount();
     if (fres != FR_OK) {
         // printf("SD mount failed (%i)\r\n", fres);
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
     fres = f_unlink(filename);
     sd_unmount();
+    osMutexRelease(s_sd_lock);
 
     if (fres != FR_OK) {
         // printf("SD delete failed (%i)\r\n", fres);
@@ -114,9 +179,12 @@ FRESULT SDFatFS_ListFiles(void)
     FILINFO info;
     FRESULT fres;
 
+    osMutexAcquire(s_sd_lock, osWaitForever);
+
     fres = sd_mount();
     if (fres != FR_OK) {
         printf("SD mount failed (%i)\r\n", fres);
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
@@ -124,6 +192,7 @@ FRESULT SDFatFS_ListFiles(void)
     if (fres != FR_OK) {
         printf("SD opendir failed (%i)\r\n", fres);
         sd_unmount();
+        osMutexRelease(s_sd_lock);
         return fres;
     }
 
@@ -138,5 +207,6 @@ FRESULT SDFatFS_ListFiles(void)
 
     f_closedir(&dir);
     sd_unmount();
+    osMutexRelease(s_sd_lock);
     return fres;
 }

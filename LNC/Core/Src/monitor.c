@@ -37,9 +37,17 @@ static void monitor_task(void *argument);
 
 Monitor *monitor_create(void)
 {
+    /* 256*4 (1024 bytes) was enough before COMM_MAX_VALUE grew 32->96
+     * for the query feature (communication.c) -- comm_send()'s
+     * comm_tx_item_t is now 98 bytes, and this task calls it (via
+     * event_mode_changed()) nested underneath its own SD-card write
+     * (log_write()) on every mode-change round, on top of DHT11's
+     * bit-banging locals, two ADC reads, and several snprintf line
+     * buffers. Same bug class, same fix as comm_rx_task's stack
+     * overflow (communication.c) -- see CLAUDE.md. */
     const osThreadAttr_t task_attr = {
         .name = "monitorTask",
-        .stack_size = 256 * 4,
+        .stack_size = 256 * 16,
         .priority = osPriorityNormal,
     };
 

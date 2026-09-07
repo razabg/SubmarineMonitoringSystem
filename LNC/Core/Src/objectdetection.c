@@ -154,9 +154,14 @@ static void objdet_task(void *argument)
 
 ObjectDetection *objdet_create(void)
 {
+    /* Same reasoning as monitor.c's stack bump: event_object_detected()/
+     * cleared() do a full SD-card write (write_events_file(), event.c)
+     * and call comm_send() (now a 98-byte comm_tx_item_t, grown from 34
+     * when COMM_MAX_VALUE went 32->96 for the query feature), both
+     * nested on this task. 256*4 (1024 bytes) predates that growth. */
     const osThreadAttr_t task_attr = {
         .name = "objDetTask",
-        .stack_size = 256 * 4,
+        .stack_size = 256 * 16,
         .priority = osPriorityNormal,
     };
 

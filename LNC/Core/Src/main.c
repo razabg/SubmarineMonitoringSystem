@@ -26,6 +26,7 @@
 #include "tlv.h"
 #include "communication.h"
 #include "init.h"
+#include "sdfatfs.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -176,6 +177,8 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
+  SDFatFS_Init();
+
   g_comm = communication_create();
   if (g_comm == NULL) {
       Error_Handler();
