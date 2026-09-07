@@ -45,36 +45,160 @@ No other module may know which transport is used. Every other module talks to a
 transport-independent interface. Keep this rule when writing code — it is stated
 twice in the spec, so it is likely a grading point.
 
-### Planned: Ethernet-simulation gateway (not built yet)
+### Ethernet-simulation gateway (requested, not yet built)
 
-Decided but deferred — build this when asked, don't start unprompted:
+Was deferred ("build this when asked, don't start unprompted") — now asked
+for, next up on the Central Computer.
 
 ```
 STM32 (real UART) <--UART-->  gateway (new, separate process)  <--TCP, localhost-->  Central Computer
 ```
 
-The board only ever has UART; there is no real Ethernet hardware. To still
-exercise the "Ethernet" transport path end-to-end, a small standalone gateway
-process will own the real serial port (reusing `SerialPort` from
-`CentralComputer/src/uartTransport/serial.h`/`.cpp` — no new UART code) and
-expose it as a plain TCP socket on localhost. It is a dumb byte pipe: no TLV
-parsing, no framing, both directions.
+**Selectable, not a default swap.** UART and Ethernet are both real options,
+chosen at connect time — not "Ethernet replaces UART." When UART is chosen,
+Communication talks straight to the real serial port, no gateway involved at
+all. When Ethernet is chosen, Communication talks to the gateway over TCP
+instead. Same `Communication` code either way; only which transport it was
+handed at construction differs.
 
-The Central Computer's Communication module then only ever opens a TCP client
-socket — it never includes `termios.h` or touches a serial device directly.
-As far as its code is concerned, it is talking Ethernet to the LNC, which
-satisfies the transport rule above literally, not just as a simulation. Plain
-TCP over loopback is the deliberate choice over a Unix-domain socket or pipe,
-specifically so this is the same BSD-sockets code the real GroundStation ↔
-CentralComputer Ethernet link needs later — pointing at a different address
-is the only change.
-
-The gateway is TLV-agnostic: it never calls `tlv_encode()` or
+**Why a gateway at all**: the board only ever has UART; there is no real
+Ethernet hardware. To still exercise the "Ethernet" transport path end-to-end
+rather than just UART forever, a small standalone gateway process owns the
+real serial port (reusing `SerialPort` from
+`CentralComputer/src/uartTransport/serial.h`/`.cpp` as-is — no new UART code)
+and exposes it as a plain TCP socket on localhost. It is a dumb byte pipe: no
+TLV parsing, no framing, both directions — it never calls `tlv_encode()` or
 `tlv_receiver_feed_byte()`, and has no dependency on `Shared/ProtocolTLV`.
 Encode/decode happens only in the Communication module on each real endpoint
 — the LNC firmware and the Central Computer — regardless of which transport
 (UART or the gateway's TCP socket) sits underneath it. The bytes the gateway
 forwards are the already-TLV-encoded frame, unchanged end to end.
+
+**Client/server roles**: the **gateway is the TCP server** (it owns the
+serial port resource, so it binds/listens/accepts); the **Central Computer's
+Communication module is the TCP client** (it connects out to the gateway,
+never includes `termios.h`, never touches a serial device directly). As far
+as Communication's code is concerned, it is talking Ethernet to the LNC —
+that satisfies the transport rule above literally, not just as a simulation.
+Plain TCP over loopback is the deliberate choice over a Unix-domain socket or
+pipe, specifically so this is the same BSD-sockets code the real GroundStation
+↔ CentralComputer Ethernet link needs later — pointing at a different address
+is the only change (that later link's own client/server roles are separate
+and not necessarily the same direction as this one; the reuse is the general
+BSD-sockets approach, not a claim that CC is a client in both relationships).
+
+**Full byte flow, LNC → CC** (CC → LNC is the exact mirror): LNC's
+Communication `tlv_encode()`s a frame and pushes it out over the physical
+UART wire → the gateway reads those raw bytes off the serial port (same
+`SerialPort` read loop as `sermon.cpp` today) and, with zero parsing, writes
+the identical bytes out over its TCP connection → CC's Communication reads
+them off its TCP socket and feeds them into the same `tlv_receiver_feed_byte()`
+streaming decoder already used for direct-serial mode → once a full frame
+assembles, it routes to `on_management_`/`on_log_` exactly as today. Every
+hop except the two real endpoints is a raw byte relay; nothing in between
+ever understands TLV.
+
+**Practical gotcha**: the gateway is a dumb pipe with no buffering-for-later
+— if it reads bytes off the serial port while no TCP client is connected yet,
+there's nowhere to send them and they're dropped. Same habit as
+`comm_test.cpp` already requires ("listening. reset the board now."): start
+the gateway and get the Central Computer connected *before* resetting the
+board, to catch everything from boot.
+
+**Transport-interface refactor — done.** `Communication` no longer owns a
+concrete `SerialPort` directly; it now takes a `Transport &` (new
+`transport.h`, a small abstract class: `read()`/`write()`/`reconnect()` —
+exactly what `rx_loop()`/`send()` already called on `port_` before, so no
+behavior changed, only what type it's called through). `Communication`'s
+constructor changed from `Communication(const std::string &path)` (opened
+the port itself) to `Communication(Transport &transport)` (takes an
+already-open transport; the transport's lifetime is the caller's
+responsibility, `Communication` only holds a reference — it must outlive the
+`Communication` object). New `serial_transport.h`/`.cpp`: `SerialTransport`
+adapts `SerialPort` to the `Transport` interface by composition (holds a
+`SerialPort` member, forwards each call) — `SerialPort` itself is completely
+untouched, still the same hardware-tested class. Declarations in the header,
+implementations in the `.cpp`, matching every other class in this codebase
+(`communication.h`/`.cpp`, `serial.h`/`.cpp`) — not left inline in the header.
+`comm_test.cpp` updated to build a `SerialTransport` and hand it to
+`Communication` — confirmed compiling clean (`-Wall -Wextra -Wpedantic`, zero
+warnings) via the existing makefile (new `serial_transport.o` target added,
+`OBJ`/dependency lines updated for the new files).
+
+**TCP-based `Transport` — built.** New `tcp_transport.h`/`.cpp`:
+`TcpTransport` is always the **client** side (the gateway is the server —
+see "client/server roles" above), connecting to `host:port` at construction,
+RAII-style like `SerialPort` (constructor connects, destructor closes, no
+separate open/close). Split into declarations (`.h`) and implementation
+(`.cpp`) from the start, matching every other class here.
+
+One real semantic difference from `SerialPort::read()` had to be handled
+carefully: for a serial port, a `read()` returning `0` just means "nothing
+arrived before the timeout" — but for a TCP socket, `recv()` returning `0`
+specifically means *the far end closed the connection*, a genuine
+disconnect, not a timeout. `TcpTransport::read()` tells these apart: a
+`SO_RCVTIMEO` of 100ms (matching `SerialPort`'s own `VMIN=0`/`VTIME=1`, i.e.
+0.1s, so both transports look the same to `Communication`'s `rx_loop()`) is
+set on the socket, so `recv()` timing out (`errno == EAGAIN`/`EWOULDBLOCK`)
+returns `0` exactly like `SerialPort` would — but an actual `recv() == 0`
+(orderly peer shutdown) is thrown as a `std::system_error` instead, so
+`rx_loop()`'s existing catch-and-reconnect logic handles a real gateway
+disconnect exactly like it already handles a real serial disconnect, with
+no changes needed on the `Communication` side.
+
+Address resolution uses `getaddrinfo()` (not a hardcoded `sockaddr_in` +
+`inet_pton()`), so a hostname would work too, not just a literal IP —
+though in practice this will point at `127.0.0.1` (the gateway, running on
+the same machine). Confirmed compiling clean (`-Wall -Wextra -Wpedantic`,
+zero warnings) via the makefile (`tcp_transport.o` target added, `OBJ`
+updated) — not yet wired into `comm_test.cpp`'s actual usage or exercised
+end-to-end, since the gateway process itself doesn't exist yet.
+
+**Gateway process — built**: new `CentralComputer/src/gateway/gateway.cpp`
+(+ its own `makefile`). Owns the real serial port via `SerialPort` (reused
+as-is), listens as a TCP server (default `127.0.0.1:5555`, both
+overridable via args — `./gateway [serial_device] [tcp_port]`), and relays
+bytes both directions between whichever client connects and the serial
+port using two threads (mirroring `Communication`'s own TX/RX split —
+`serial_to_tcp()`/`tcp_to_serial()`, no coordination needed between them
+beyond a shared stop flag). Loops back to `accept()` after a session ends,
+so the Central Computer can restart/reconnect without restarting the
+gateway.
+
+A real bug was caught by testing: `SerialPort`'s constructor throws on
+failure, and that was initially left to propagate straight out of
+`main()` uncaught, crashing via `std::terminate()`/`abort()` instead of
+failing gracefully. Fixed with the same try/catch pattern `comm_test.cpp`
+already uses. `fflush(stdout)` added after every status print, matching
+`comm_test.cpp`'s own convention.
+
+`comm_test.cpp` now supports both transports: `./comm_test /dev/ttyACM0`
+(UART, default if no args) or `./comm_test --tcp host:port` (Ethernet, via
+the gateway) — the choice happens once, in `main()`, building either a
+`SerialTransport` or a `TcpTransport` into a `std::unique_ptr<Transport>`
+before constructing `Communication` from it; `Communication`'s own code
+is unchanged either way.
+
+**Confirmed working end-to-end without real hardware**, using a `socat`-
+created linked PTY pair as a stand-in serial port (`gateway` opened one
+end as if it were `/dev/ttyACM0`) and a hand-encoded `tlv_encode()` frame
+(a throwaway tool built against the real `tlv.c`) written directly to the
+other end to stand in for "the LNC":
+- **CC → LNC**: `comm_test`'s auto-sent `QUERY_DATA`/`QUERY_EVENTS` test
+  frames were correctly captured on the fake board side, byte-for-byte
+  correct (`a5 5a 30 0c 00 01 01 00 00 00 63 0c 1f 17 3b 3b ...` — sync,
+  tag, len, the exact widest-range payload, CRC).
+  - The gateway's accept-loop reconnect behavior was also confirmed:
+    multiple sequential `comm_test` connections were each accepted,
+    relayed, and cleanly torn down, with the gateway correctly returning
+    to `accept()` for the next one each time.
+- **LNC → CC**: a hand-crafted `TLV_TAG_KEEP_ALIVE` frame written to the
+  fake board side came back out of `comm_test` as a correctly decoded
+  `LOG tag=0x14 len=12 value=...` line, matching the input payload exactly.
+
+Not yet tested against the real board — that's next, on real hardware
+(`stm linux`, the real `/dev/ttyACM*`, and the real gateway/TCP path all
+together for the first time).
 
 ---
 
@@ -730,7 +854,8 @@ tested against something real instead of assumption.
   them (Management Command for the reply/ack tags, Log + Data Collection for
   reports and events).
 - This is also the point where the transport this module talks to becomes
-  swappable — see the "Planned: Ethernet-simulation gateway" note above.
+  swappable — see the "Ethernet-simulation gateway" note above (now
+  requested — the transport-interface refactor described there is next).
   Build against `SerialPort` now; the gateway/TCP swap is deferred, but the
   module boundary should already make that swap a one-line change (pass in
   whatever satisfies the transport calls Communication needs, not

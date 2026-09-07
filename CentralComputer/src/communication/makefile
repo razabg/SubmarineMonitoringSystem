@@ -9,17 +9,23 @@ UART_DIR = ../uartTransport
 INCLUDES = -I$(TLV_DIR) -I$(UART_DIR)
 
 BIN = comm_test
-OBJ = comm_test.o communication.o serial.o tlv.o
+OBJ = comm_test.o communication.o serial_transport.o tcp_transport.o serial.o tlv.o
 
 all: $(BIN)
 
 $(BIN): $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) -lpthread
 
-comm_test.o: comm_test.cpp communication.h
+comm_test.o: comm_test.cpp communication.h serial_transport.h tcp_transport.h transport.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-communication.o: communication.cpp communication.h
+communication.o: communication.cpp communication.h transport.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+serial_transport.o: serial_transport.cpp serial_transport.h transport.h $(UART_DIR)/serial.h
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+tcp_transport.o: tcp_transport.cpp tcp_transport.h transport.h
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 serial.o: $(UART_DIR)/serial.cpp $(UART_DIR)/serial.h

@@ -1,20 +1,26 @@
 /*
  * communication.h - Central Computer Communication module (LNC-facing)
  *
- * Owns the serial link to one LNC exclusively -- sits on top of
- * SerialPort (uartTransport/serial.h), never touches termios/fd details
- * itself. Uses the shared TLV protocol (Shared/ProtocolTLV/tlv.h) for
- * both directions: tlv_encode() to send, the streaming receiver
+ * Talks to the LNC over whichever Transport it's handed (transport.h) --
+ * never touches SerialPort, termios, or a TCP socket by name itself.
+ * That's deliberate: the project's transport rule says UART vs Ethernet
+ * must be a config detail this module doesn't know about. Which
+ * concrete Transport is in use (SerialTransport for UART, a TCP-based
+ * one for the Ethernet-simulation gateway) is decided once, by whoever
+ * constructs it -- see CLAUDE.md's "Ethernet-simulation gateway" note.
+ * Uses the shared TLV protocol (Shared/ProtocolTLV/tlv.h) for both
+ * directions: tlv_encode() to send, the streaming receiver
  * (tlv_receiver_t + tlv_receiver_feed()) to decode incoming bytes.
  *
- * RAII, matching SerialPort's own style: the constructor opens the port
- * and starts the RX thread, the destructor stops the thread and closes
- * everything down automatically. No separate create()/destroy() to
- * remember to call.
+ * RAII: the constructor starts the RX thread, the destructor stops it.
+ * No separate create()/destroy() to remember to call. Unlike before,
+ * this class no longer opens anything itself -- the Transport it's
+ * given must already be open and ready to use, and must outlive this
+ * Communication object (this class only holds a reference to it).
  *
  * Flow:
- *   send()     : caller thread -> tlv_encode() -> SerialPort::write()
- *   receive    : rx_thread_ -> SerialPort::read() -> tlv_receiver_feed()
+ *   send()     : caller thread -> tlv_encode() -> Transport::write()
+ *   receive    : rx_thread_ -> Transport::read() -> tlv_receiver_feed()
  *                -> frame_trampoline() -> route_frame() -> on_management_
  *                or on_log_ (whichever was registered via the setters)
  */
@@ -29,7 +35,7 @@
 #include <string>
 #include <thread>
 
-#include "serial.h"
+#include "transport.h"
 #include "tlv.h"
 
 class Communication
@@ -40,10 +46,11 @@ public:
      * e.g. a reference to whichever module should receive the frame. */
     using FrameHandler = std::function<void(const tlv_frame_t &)>;
 
-    /* Opens `path` (via SerialPort) and starts the RX thread. Throws
-     * std::system_error (propagated from SerialPort) if the port can't
-     * be opened/configured. */
-    explicit Communication(const std::string &path);
+    /* Takes an already-constructed, already-open Transport (SerialTransport
+     * for UART, or a TCP-based one for Ethernet) and starts the RX thread.
+     * `transport` must outlive this Communication object -- ownership
+     * stays with the caller. */
+    explicit Communication(Transport &transport);
 
     /* Stops the RX thread (joins it) and closes the port. Never throws. */
     ~Communication();
@@ -57,7 +64,7 @@ public:
 
     /* Sends one TLV frame to the LNC. Thread-safe: safe to call from
      * more than one thread at once. Throws std::system_error (via
-     * SerialPort::write) on a real transport failure, or
+     * Transport::write) on a real transport failure, or
      * std::invalid_argument if value/value_len are contradictory. */
     void send(uint8_t tag, const uint8_t *value, uint8_t value_len);
 
@@ -71,7 +78,7 @@ public:
 
 private:
     /* --- transport + protocol state --- */
-    SerialPort port_;
+    Transport &transport_;
     tlv_receiver_t rx_recv_{};
 
     /* --- TX side: send() may be called from more than one thread --- */
@@ -85,8 +92,8 @@ private:
     std::atomic<bool> running_{true};
     std::thread rx_thread_;
 
-    /* Runs on rx_thread_: reads a chunk from port_, feeds it to the TLV
-     * streaming decoder, dispatches each finished frame via
+    /* Runs on rx_thread_: reads a chunk from transport_, feeds it to the
+     * TLV streaming decoder, dispatches each finished frame via
      * route_frame(). Reconnects (mirroring sermon.cpp) if a read fails. */
     void rx_loop();
 
