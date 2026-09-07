@@ -1,17 +1,24 @@
 /*
  * comm_test.cpp - manual round-trip test for the Communication class.
  *
- * Constructs a Communication against a serial device and prints every
+ * Constructs a Communication against either a serial device or (via the
+ * Ethernet-simulation gateway) a TCP connection, and prints every
  * decoded frame that arrives, tagged by which handler routed it
  * (LOG vs MGMT). Ctrl-C to quit.
  *
- *   ./comm_test /dev/ttyACM0
+ *   ./comm_test /dev/ttyACM0        (UART, direct -- default if no args)
+ *   ./comm_test --tcp 127.0.0.1:5555  (Ethernet, via the gateway -- see
+ *                                       CLAUDE.md's "Ethernet-simulation
+ *                                       gateway" note; start ./gateway
+ *                                       first, it's the TCP server)
  *
  * Purpose: prove the Communication class's RX pipeline (rx_thread_ ->
- * SerialPort::read() -> tlv_receiver_feed() -> frame_trampoline() ->
+ * Transport::read() -> tlv_receiver_feed() -> frame_trampoline() ->
  * route_frame() -> the registered handler) works end to end against
  * real hardware -- sermon.cpp already proved the raw bytes are correct,
- * this proves our own class decodes and routes them correctly too.
+ * this proves our own class decodes and routes them correctly too. Same
+ * Communication code either way; only which concrete Transport it was
+ * handed differs (see transport.h).
  *
  * Also exercises the LNC's TLV_TAG_QUERY_DATA/QUERY_EVENTS handlers
  * (log_on_frame()/event_on_frame() in the firmware): press Enter once
@@ -25,11 +32,15 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <thread>
 
 #include "communication.h"
+#include "serial_transport.h"
+#include "tcp_transport.h"
 #include "tlv.h"
 
 static volatile sig_atomic_t g_stop = 0;
@@ -71,14 +82,48 @@ static void send_query_all(Communication &comm, uint8_t tag, const char *label)
     comm.send(tag, reinterpret_cast<const uint8_t *>(&p), sizeof(p));
 }
 
+/* Parses "host:port" (e.g. "127.0.0.1:5555") for --tcp. Returns false
+ * (and leaves an error on stderr) on a malformed argument. */
+static bool parse_host_port(const std::string &arg, std::string &host_out, uint16_t &port_out)
+{
+    size_t colon = arg.find(':');
+    if (colon == std::string::npos || colon == 0 || colon == arg.size() - 1) {
+        std::fprintf(stderr, "expected host:port, e.g. 127.0.0.1:5555 (got \"%s\")\n", arg.c_str());
+        return false;
+    }
+    host_out = arg.substr(0, colon);
+    port_out = static_cast<uint16_t>(std::atoi(arg.substr(colon + 1).c_str()));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
-    const char *path = (argc > 1) ? argv[1] : "/dev/ttyACM0";
-
-    std::printf("opening %s ...\n", path);
+    /* Which Transport to build is decided once, here -- Communication
+     * itself never knows or cares which one it ends up with. */
+    std::unique_ptr<Transport> transport;
 
     try {
-        Communication comm(path);
+        if (argc > 1 && std::string(argv[1]) == "--tcp") {
+            if (argc < 3) {
+                std::fprintf(stderr, "usage: %s --tcp host:port\n", argv[0]);
+                return 1;
+            }
+            std::string host;
+            uint16_t port = 0;
+            if (!parse_host_port(argv[2], host, port)) {
+                return 1;
+            }
+            std::printf("connecting to gateway at %s:%u ...\n", host.c_str(), port);
+            std::fflush(stdout);
+            transport = std::make_unique<TcpTransport>(host, port);
+        } else {
+            const char *path = (argc > 1) ? argv[1] : "/dev/ttyACM0";
+            std::printf("opening %s ...\n", path);
+            std::fflush(stdout);
+            transport = std::make_unique<SerialTransport>(path);
+        }
+
+        Communication comm(*transport);
 
         comm.set_log_handler([](const tlv_frame_t &f) {
             print_frame("LOG ", f);

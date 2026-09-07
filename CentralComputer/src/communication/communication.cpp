@@ -11,7 +11,7 @@
  * Construction / destruction
  * =============================================================== */
 
-Communication::Communication(const std::string &path) : port_(path)
+Communication::Communication(Transport &transport) : transport_(transport)
 {
     tlv_receiver_init(&rx_recv_);
     rx_thread_ = std::thread(&Communication::rx_loop, this);
@@ -45,7 +45,7 @@ void Communication::send(uint8_t tag, const uint8_t *value, uint8_t value_len)
         throw std::invalid_argument("Communication::send: tlv_encode failed");
     }
 
-    port_.write(frame, frame_len);
+    transport_.write(frame, frame_len);
 }
 
 void Communication::set_management_handler(FrameHandler handler)
@@ -62,7 +62,7 @@ void Communication::set_log_handler(FrameHandler handler)
  * RX side
  *
  * rx_loop() (running on rx_thread_) is the only thing that ever reads
- * port_. It hands finished frames to route_frame() through the
+ * transport_. It hands finished frames to route_frame() through the
  * frame_trampoline() bridge, which dispatches to on_management_/
  * on_log_ by tag.
  * =============================================================== */
@@ -74,11 +74,11 @@ void Communication::rx_loop()
     while (running_.load()) { // read safely the bool value
         long n;
         try {
-            n = port_.read(buf, sizeof(buf));
+            n = transport_.read(buf, sizeof(buf));
         } catch (const std::exception &) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
             try {
-                port_.reconnect();
+                transport_.reconnect();
             } catch (const std::exception &) {
                 /* still down; next loop iteration tries the read again */
             }

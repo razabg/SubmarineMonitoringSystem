@@ -35,7 +35,7 @@
  * heuristic, not a real protocol decode, so it's not guaranteed against
  * noise that happens to also be bursty. */
 #define BURST_WINDOW_MS   60u
-#define BURST_THRESHOLD   50u
+#define BURST_THRESHOLD   80u
 
 /* Speed-based rejection, ahead of the burst filter above -- SPI runs
  * at MHz rates (edges every fraction of a microsecond); a VS1838B's
