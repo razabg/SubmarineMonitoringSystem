@@ -33,6 +33,23 @@ std::string format(uint8_t year, uint8_t month, uint8_t date, uint8_t hour, uint
  * -- the retention cutoff shape both Log's file rotation and
  * DataCollectionAnalysis's row purge need. days_ago=0 means "today". */
 std::string days_ago_date(int days_ago);
+
+/* Current local wall-clock time as raw calendar fields, matching the
+ * LNC's own time_payload_t layout exactly (init.c) -- for building a
+ * binary payload (e.g. TLV_TAG_TIME_SYNC_REPLY), which needs individual
+ * numeric fields, not a formatted string like now() returns. */
+struct CalendarFields {
+    uint8_t year;  /* 0-99, offset from 2000 */
+    uint8_t month; /* 1-12 */
+    uint8_t date;  /* 1-31 */
+    uint8_t hour;  /* 0-23 */
+    uint8_t min;   /* 0-59 */
+    uint8_t sec;   /* 0-59 */
+    uint8_t dow;   /* 1-7, Monday=1..Sunday=7 -- HAL's convention, matching
+                    * what the LNC's RTC_DateTypeDef.WeekDay expects */
+};
+
+CalendarFields now_fields();
 } // namespace TimeUtils
 
 #endif /* TIME_UTILS_H */

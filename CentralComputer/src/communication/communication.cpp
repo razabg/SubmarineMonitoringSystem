@@ -103,6 +103,7 @@ void Communication::route_frame(const tlv_frame_t &frame)
     case TLV_TAG_ACK:
     case TLV_TAG_NACK:
     case TLV_TAG_TIME_REPLY:
+    case TLV_TAG_TIME_SYNC_REQUEST:
         on_management_(frame);
         break;
 
