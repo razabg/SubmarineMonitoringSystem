@@ -1,3 +1,8 @@
+1. run the gateway ./build/gateway 
+2.run the central_computer ./build/central_computer
+
+
+
 ls -la /dev/ttyACM* to check to current node that board got.
 
 --- view central_computer's SQLite database (from CentralComputer/) ---
