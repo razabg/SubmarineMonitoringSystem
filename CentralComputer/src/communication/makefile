@@ -8,33 +8,38 @@ UART_DIR = ../uartTransport
 
 INCLUDES = -I$(TLV_DIR) -I$(UART_DIR)
 
-BIN = comm_test
-OBJ = comm_test.o communication.o serial_transport.o tcp_transport.o serial.o tlv.o
+BUILD = build
+BIN   = $(BUILD)/comm_test
+OBJ   = $(BUILD)/comm_test.o $(BUILD)/communication.o $(BUILD)/serial_transport.o \
+        $(BUILD)/tcp_transport.o $(BUILD)/serial.o $(BUILD)/tlv.o
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) -lpthread
+$(BUILD):
+	mkdir -p $(BUILD)
 
-comm_test.o: comm_test.cpp communication.h serial_transport.h tcp_transport.h transport.h
+$(BIN): $(BUILD) $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $(BIN) $(OBJ) -lpthread
+
+$(BUILD)/comm_test.o: comm_test.cpp communication.h serial_transport.h tcp_transport.h transport.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-communication.o: communication.cpp communication.h transport.h
+$(BUILD)/communication.o: communication.cpp communication.h transport.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-serial_transport.o: serial_transport.cpp serial_transport.h transport.h $(UART_DIR)/serial.h
+$(BUILD)/serial_transport.o: serial_transport.cpp serial_transport.h transport.h $(UART_DIR)/serial.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-tcp_transport.o: tcp_transport.cpp tcp_transport.h transport.h
+$(BUILD)/tcp_transport.o: tcp_transport.cpp tcp_transport.h transport.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-serial.o: $(UART_DIR)/serial.cpp $(UART_DIR)/serial.h
+$(BUILD)/serial.o: $(UART_DIR)/serial.cpp $(UART_DIR)/serial.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-tlv.o: $(TLV_DIR)/tlv.c $(TLV_DIR)/tlv.h
+$(BUILD)/tlv.o: $(TLV_DIR)/tlv.c $(TLV_DIR)/tlv.h $(BUILD)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -f $(BIN) $(OBJ)
+	rm -rf $(BUILD)
 
 .PHONY: all clean
