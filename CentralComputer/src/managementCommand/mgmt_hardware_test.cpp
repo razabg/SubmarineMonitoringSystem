@@ -23,6 +23,7 @@
 #include <thread>
 
 #include "communication.h"
+#include "log.h"
 #include "management_command.h"
 #include "serial_transport.h"
 #include "tcp_transport.h"
@@ -77,9 +78,10 @@ int main(int argc, char **argv)
         }
 
         Communication comm(*transport);
+        Log log("test_output/mgmt_hardware_test");
         /* Constructing this alone wires up TIME_SYNC_REQUEST handling --
          * see management_command.h. */
-        ManagementCommand mgmt(comm);
+        ManagementCommand mgmt(comm, log);
 
         std::signal(SIGINT, on_sigint);
         std::printf("listening. reset the board now.\n");

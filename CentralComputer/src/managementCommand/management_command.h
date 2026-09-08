@@ -12,6 +12,12 @@
  *
  * ACK/NACK: the LNC's config.c doesn't send either yet -- handled here
  * anyway, ready for when it does. send() itself is fire-and-forget.
+ *
+ * Also takes a Log& -- every command actually sent, and every reply
+ * received (including the automatic TIME_SYNC_REQUEST fix above),
+ * gets written there. Logging lives here rather than in each caller
+ * (e.g. main.cpp's menu) so nothing that goes through this class can
+ * be sent without leaving a permanent record, regardless of who calls it.
  */
 #ifndef MANAGEMENT_COMMAND_H
 #define MANAGEMENT_COMMAND_H
@@ -19,6 +25,7 @@
 #include <cstdint>
 
 #include "communication.h"
+#include "log.h"
 #include "tlv.h"
 
 /* Wire formats, duplicated from the LNC's own (config.c, init.c) --
@@ -48,9 +55,9 @@ struct __attribute__((packed)) time_payload_t {
 class ManagementCommand
 {
 public:
-    /* Held by reference, not stored -- caller keeps Communication
-     * alive, same as Communication's own Transport&. */
-    explicit ManagementCommand(Communication &comm);
+    /* Both held by reference, not stored -- caller keeps them alive,
+     * same as Communication's own Transport&. */
+    ManagementCommand(Communication &comm, Log &log);
 
     ManagementCommand(const ManagementCommand &) = delete;
     ManagementCommand &operator=(const ManagementCommand &) = delete;
@@ -72,9 +79,10 @@ public:
 
 private:
     Communication &comm_;
+    Log &log_;
 
-    bool send_temp_range(uint8_t tag, int8_t min, int8_t max);
-    bool send_bound(uint8_t tag, uint8_t min);
+    bool send_temp_range(uint8_t tag, const char *label, int8_t min, int8_t max);
+    bool send_bound(uint8_t tag, const char *label, uint8_t min);
 
     /* Registered as Communication's management handler. */
     void on_frame(const tlv_frame_t &frame);
