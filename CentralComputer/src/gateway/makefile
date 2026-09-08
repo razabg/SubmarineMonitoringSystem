@@ -5,21 +5,25 @@ UART_DIR = ../uartTransport
 
 INCLUDES = -I$(UART_DIR)
 
-BIN = gateway
-OBJ = gateway.o serial.o
+BUILD = build
+BIN   = $(BUILD)/gateway
+OBJ   = $(BUILD)/gateway.o $(BUILD)/serial.o
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ) -lpthread
+$(BUILD):
+	mkdir -p $(BUILD)
 
-gateway.o: gateway.cpp $(UART_DIR)/serial.h
+$(BIN): $(BUILD) $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $(BIN) $(OBJ) -lpthread
+
+$(BUILD)/gateway.o: gateway.cpp $(UART_DIR)/serial.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-serial.o: $(UART_DIR)/serial.cpp $(UART_DIR)/serial.h
+$(BUILD)/serial.o: $(UART_DIR)/serial.cpp $(UART_DIR)/serial.h $(BUILD)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 clean:
-	rm -f $(BIN) $(OBJ)
+	rm -rf $(BUILD)
 
 .PHONY: all clean

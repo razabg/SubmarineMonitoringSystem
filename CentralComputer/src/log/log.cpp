@@ -4,13 +4,11 @@
  */
 #include "log.h"
 
-#include <chrono>
-#include <ctime>
 #include <filesystem>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
+
+#include "time_utils.h"
 
 namespace fs = std::filesystem;
 
@@ -30,26 +28,12 @@ Log::~Log()
 
 std::string Log::today_date()
 {
-    return timestamp_now().substr(0, 10); /* "YYYY-MM-DD" is the first 10 characters of "YYYY-MM-DD HH:MM:SS" */
+    return TimeUtils::days_ago_date(0); /* "0 days ago" is today */
 }
 
 std::string Log::timestamp_now()
 {
-    /* now(): the current instant as an opaque chrono time_point --
-     * to_time_t(): converts it to a plain integer (seconds since 1970),
-     * the type localtime_r()/put_time() below actually know how to read. */
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-
-    std::tm tm{}; /* zero-initialized calendar struct; localtime_r fills it in below */
-    /* localtime_r, not std::localtime: the plain standard version isn't
-     * thread-safe (it writes through one shared static buffer) -- this
-     * class explicitly supports being called from more than one thread. */
-    localtime_r(&t, &tm);
-
-    std::ostringstream oss;                         /* string-builder stream */
-    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S"); /* formats tm per this pattern, same codes as strftime */
-    return oss.str();
+    return TimeUtils::now();
 }
 
 std::string Log::file_path_for(const std::string &date) const
@@ -70,6 +54,19 @@ void Log::roll_to_today_if_needed()
         file_.close();
     }
 
+    /* ofstream::open() never creates missing directories, only files --
+     * without this, a fresh deployment with no logs/ folder yet would
+     * fail to start the very first time. create_directories() is a
+     * no-op (returns false, doesn't throw) if the directory already
+     * exists, so this is safe to call on every rollover, not just the
+     * first one. */
+    fs::path dir = fs::path(file_path_for(today)).parent_path();
+    if (!dir.empty())
+    {
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+    }
+
     file_.open(file_path_for(today), std::ios::app);
     if (!file_.is_open())
     {
@@ -82,15 +79,7 @@ void Log::roll_to_today_if_needed()
 
 std::string Log::compute_cutoff_date(int retention_days) // default = 7 like the lnc
 {
-    auto cutoff_tp = std::chrono::system_clock::now() - std::chrono::hours(24 * retention_days);
-    std::time_t cutoff_t = std::chrono::system_clock::to_time_t(cutoff_tp);
-
-    std::tm tm{};
-    localtime_r(&cutoff_t, &tm);
-
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%d");
-    return oss.str();
+    return TimeUtils::days_ago_date(retention_days);
 }
 
 std::string Log::parse_file_date(const std::string &filename, const std::string &prefix,

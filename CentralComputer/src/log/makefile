@@ -1,21 +1,31 @@
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -Wpedantic -O2 -g
 
-BIN = log_test
-OBJ = log_test.o log.o
+COMMON_DIR = ../common
+INCLUDES   = -I$(COMMON_DIR)
+
+BUILD = build
+BIN   = $(BUILD)/log_test
+OBJ   = $(BUILD)/log_test.o $(BUILD)/log.o $(BUILD)/time_utils.o
 
 all: $(BIN)
 
-$(BIN): $(OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(OBJ)
+$(BUILD):
+	mkdir -p $(BUILD)
 
-log_test.o: log_test.cpp log.h
+$(BIN): $(BUILD) $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $(BIN) $(OBJ)
+
+$(BUILD)/log_test.o: log_test.cpp log.h $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-log.o: log.cpp log.h
+$(BUILD)/log.o: log.cpp log.h $(COMMON_DIR)/time_utils.h $(BUILD)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+$(BUILD)/time_utils.o: $(COMMON_DIR)/time_utils.cpp $(COMMON_DIR)/time_utils.h $(BUILD)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(BIN) $(OBJ) *.log
+	rm -rf $(BUILD) test_output
 
 .PHONY: all clean
