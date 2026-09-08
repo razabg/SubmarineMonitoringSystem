@@ -1,1 +1,15 @@
 ls -la /dev/ttyACM* to check to current node that board got.
+
+--- view central_computer's SQLite database (from CentralComputer/) ---
+sqlite3 data/central_computer.db                                  open interactive shell
+.tables                                                            list tables (inside the shell)
+.headers on
+.mode column                                                       pretty columns (inside the shell)
+SELECT * FROM measurements;                                        all stored sensor readings
+SELECT * FROM events;                                               all stored events
+SELECT * FROM measurements WHERE timestamp BETWEEN '2026-09-08 00:00:00' AND '2026-09-08 23:59:59';
+.quit
+
+or one-shot, no shell:
+sqlite3 data/central_computer.db "SELECT * FROM measurements;"
+sqlite3 data/central_computer.db "SELECT * FROM events;"

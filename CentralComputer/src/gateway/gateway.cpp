@@ -101,6 +101,12 @@ void serial_to_tcp(SerialPort &serial_port, int client_fd, std::atomic<bool> &st
             stop_flag = true;
             break;
         }
+
+        /* Byte count only, never the content -- still a dumb pipe, no
+         * TLV parsing (see this file's header comment); this is just
+         * visible proof relaying is actually happening during a demo. */
+        std::printf("gateway: relayed %ld bytes serial -> tcp\n", n);
+        std::fflush(stdout);
     }
 }
 
@@ -141,6 +147,9 @@ void tcp_to_serial(int client_fd, SerialPort &serial_port, std::atomic<bool> &st
             stop_flag = true;
             break;
         }
+
+        std::printf("gateway: relayed %zd bytes tcp -> serial\n", n);
+        std::fflush(stdout);
     }
 }
 
