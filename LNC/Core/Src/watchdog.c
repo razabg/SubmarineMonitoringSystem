@@ -36,7 +36,7 @@ static void watchdog_task(void *argument)
         HAL_IWDG_Refresh(&hiwdg);//refersh every 1 sec the 4 sec coountdown
 
         tick += WATCHDOG_REFRESH_MS;
-        osDelayUntil(tick);
+        osDelayUntil(tick); /* == FreeRTOS vTaskDelayUntil() */
     }
 }
 

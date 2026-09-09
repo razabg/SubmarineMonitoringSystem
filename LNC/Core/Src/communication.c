@@ -356,6 +356,7 @@ static void comm_route_frame(const tlv_frame_t *f)
     case TLV_TAG_SET_LIGHT_WARNING:
     case TLV_TAG_SET_BATT_NORMAL:
     case TLV_TAG_SET_BATT_WARNING:
+    case TLV_TAG_GET_CONFIG: /* CC asking for the current thresholds -- Configuration owns replying */
         configuration_on_frame(f);
         break;
 
